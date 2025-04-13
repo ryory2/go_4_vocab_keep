@@ -5,10 +5,10 @@ import (
 	"log"
 	"net/http"
 
-	"go_1_test_repository/internal/middleware"
-	"go_1_test_repository/internal/model"
-	"go_1_test_repository/internal/service"
-	"go_1_test_repository/internal/webutil"
+	"go_4_vocab_keep/internal/middleware"
+	"go_4_vocab_keep/internal/model"
+	"go_4_vocab_keep/internal/service"
+	"go_4_vocab_keep/internal/webutil"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"

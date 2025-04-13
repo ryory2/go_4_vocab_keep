@@ -5,8 +5,8 @@ import (
 	"context" // errorsを追加
 	"log"
 
-	"go_1_test_repository/internal/model"      // プロジェクト名修正
-	"go_1_test_repository/internal/repository" // プロジェクト名修正
+	"go_4_vocab_keep/internal/model"      // プロジェクト名修正
+	"go_4_vocab_keep/internal/repository" // プロジェクト名修正
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"

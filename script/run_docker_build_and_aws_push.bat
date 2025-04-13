@@ -24,9 +24,9 @@ echo "■ビルド" >> "%LOG_FILE%"
 @REM docker build -t react-frontend -f Dockerfile.prod . >> "%LOG_FILE%"
 docker compose --file docker/docker-compose.prod.yml --env-file docker/env/.env.prod build --no-cache >> "%LOG_FILE%"
 echo "■タグつけ" >> "%LOG_FILE%"
-docker tag test/go_1_test_repository:latest 990606419933.dkr.ecr.ap-northeast-1.amazonaws.com/test/go_1_test_repository:latest >> "%LOG_FILE%"
+docker tag test/go_4_vocab_keep:latest 990606419933.dkr.ecr.ap-northeast-1.amazonaws.com/test/go_4_vocab_keep:latest >> "%LOG_FILE%"
 echo "■プッシュ" >> "%LOG_FILE%"
-docker push 990606419933.dkr.ecr.ap-northeast-1.amazonaws.com/test/go_1_test_repository:latest >> "%LOG_FILE%"
+docker push 990606419933.dkr.ecr.ap-northeast-1.amazonaws.com/test/go_4_vocab_keep:latest >> "%LOG_FILE%"
 
 REM 実行完了時刻をログに記録
 echo Execution finished at %date% %time% >> "%LOG_FILE%"

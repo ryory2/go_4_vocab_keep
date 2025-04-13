@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 
-	"go_1_test_repository/internal/model"
+	"go_4_vocab_keep/internal/model"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"

@@ -9,7 +9,7 @@
 
 ## ECRへのプッシュ
 - arn
-    990606419933.dkr.ecr.ap-northeast-1.amazonaws.com/test/go_1_test_repository
+    990606419933.dkr.ecr.ap-northeast-1.amazonaws.com/test/go_4_vocab_keep
 
 ## フォルダの作成
 mkdir -p cmd internal pkg api web configs scripts build test
@@ -78,3 +78,7 @@ myproject/
 ├── test/                       # 追加のテスト (E2E, インテグレーションテストなど)
 │   └── e2e/                    # エンドツーエンドテスト (例)
 │       └── main_test.go
+
+
+
+go test -v ./internal/service/

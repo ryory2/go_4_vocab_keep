@@ -5,7 +5,7 @@ import (
 	"log"
 	"net/http"
 
-	"go_1_test_repository/internal/model" // modelパッケージのインポートパスに修正 (go.modに合わせてください)
+	"go_4_vocab_keep/internal/model" // modelパッケージのインポートパスに修正 (go.modに合わせてください)
 )
 
 // DecodeJSONBody はリクエストボディをデコードします

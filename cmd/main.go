@@ -13,11 +13,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
-	"go_1_test_repository/internal/config"     // プロジェクト名修正
-	"go_1_test_repository/internal/handlers"   // プロジェクト名修正
-	"go_1_test_repository/internal/middleware" // プロジェクト名修正
-	"go_1_test_repository/internal/repository" // プロジェクト名修正
-	"go_1_test_repository/internal/service"    // プロジェクト名修正
+	"go_4_vocab_keep/internal/config"     // プロジェクト名修正
+	"go_4_vocab_keep/internal/handlers"   // プロジェクト名修正
+	"go_4_vocab_keep/internal/middleware" // プロジェクト名修正
+	"go_4_vocab_keep/internal/repository" // プロジェクト名修正
+	"go_4_vocab_keep/internal/service"    // プロジェクト名修正
 
 	"gorm.io/gorm" // GORMはDB接続用に必要
 )

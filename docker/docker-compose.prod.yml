@@ -1,11 +1,11 @@
 version: '3.8'  # Docker Composeファイルのバージョンを指定します。ここではバージョン3.8を使用しています。
 
 services:  # サービス定義の開始です。ここではpostgresとpgadminの2つのサービスを定義します。
-  go_1_test_repository:
+  go_4_vocab_keep:
     build:
       context: ./../ # プロジェクトルートに設定
       dockerfile: docker/services/go/Dockerfile.prod
-    image: test/go_1_test_repository:latest
+    image: test/go_4_vocab_keep:latest
     ports:
       - "8080:8080"
       - "2345:2345"    # Delveのポート

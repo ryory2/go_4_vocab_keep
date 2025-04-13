@@ -7,9 +7,9 @@ import (
 	"log"
 	"time"
 
-	"go_1_test_repository/internal/config"
-	"go_1_test_repository/internal/model"
-	"go_1_test_repository/internal/repository"
+	"go_4_vocab_keep/internal/config"
+	"go_4_vocab_keep/internal/model"
+	"go_4_vocab_keep/internal/repository"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"

@@ -7,10 +7,10 @@ import (
 	"log"
 	"net/http"
 
-	"go_1_test_repository/internal/model" // プロジェクト名修正
+	"go_4_vocab_keep/internal/model" // プロジェクト名修正
 	// プロジェクト名修正
-	"go_1_test_repository/internal/service" // serviceを追加 (Authenticatorから使う場合)
-	"go_1_test_repository/internal/webutil" // プロジェクト名修正
+	"go_4_vocab_keep/internal/service" // serviceを追加 (Authenticatorから使う場合)
+	"go_4_vocab_keep/internal/webutil" // プロジェクト名修正
 
 	"github.com/google/uuid"
 	// gormは直接使わない (service経由にする)

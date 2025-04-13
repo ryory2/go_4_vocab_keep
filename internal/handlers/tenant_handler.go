@@ -6,8 +6,8 @@ import (
 	"net/http"
 
 	// プロジェクト名修正
-	"go_1_test_repository/internal/service" // プロジェクト名修正
-	"go_1_test_repository/internal/webutil" // プロジェクト名修正
+	"go_4_vocab_keep/internal/service" // プロジェクト名修正
+	"go_4_vocab_keep/internal/webutil" // プロジェクト名修正
 )
 
 type TenantHandler struct {

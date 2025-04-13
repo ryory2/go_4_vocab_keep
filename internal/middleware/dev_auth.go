@@ -6,8 +6,8 @@ import (
 	"log"
 	"net/http"
 
-	"go_1_test_repository/internal/model"   // プロジェクト名修正
-	"go_1_test_repository/internal/webutil" // プロジェクト名修正
+	"go_4_vocab_keep/internal/model"   // プロジェクト名修正
+	"go_4_vocab_keep/internal/webutil" // プロジェクト名修正
 
 	"github.com/google/uuid"
 )

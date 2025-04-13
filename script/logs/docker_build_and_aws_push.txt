@@ -1,12 +1,12 @@
 Execution started at 2025/02/16 23:01:08.90 
 -------------------------------------------------- 
-Batch file directory: C:\workspace\go_1_test_repository\script\ 
+Batch file directory: C:\workspace\go_4_vocab_keep\script\ 
 "■AWSログイン" 
 Login Succeeded
 "■ビルド" 
 "■タグつけ" 
 "■プッシュ" 
-The push refers to repository [990606419933.dkr.ecr.ap-northeast-1.amazonaws.com/test/go_1_test_repository]
+The push refers to repository [990606419933.dkr.ecr.ap-northeast-1.amazonaws.com/test/go_4_vocab_keep]
 b219a6cab26b: Preparing
 547a2f6851ce: Preparing
 08000c18d16d: Preparing
