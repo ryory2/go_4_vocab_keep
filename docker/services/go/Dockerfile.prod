@@ -1,0 +1,28 @@
+# ビルドステージ: Go の公式イメージを使用
+FROM golang:1.23-alpine AS builder
+
+WORKDIR /app
+
+# モジュールファイルとソースコードのコピー
+COPY ./ .
+RUN go mod tidy
+
+# アプリケーションのビルド
+WORKDIR /app/cmd
+RUN go build -o server
+
+# 実行ステージ: 軽量な Alpine イメージを利用
+FROM alpine:latest
+
+# curl をインストール
+RUN apk update && apk add --no-cache curl
+
+WORKDIR /app/cmd
+COPY --from=builder /app/cmd/server .
+
+# ポート8080を公開
+EXPOSE 8080
+
+# アプリケーションの起動
+WORKDIR /app/cmd
+CMD ["./server"]

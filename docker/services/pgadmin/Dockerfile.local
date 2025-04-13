@@ -1,0 +1,11 @@
+# ベースイメージを指定（公式 pgAdmin イメージを使用）
+FROM dpage/pgadmin4:8.12
+
+# ホストの .pgpass ファイルをコンテナ内にコピー
+COPY docker/services/pgadmin/.pgpass /home/pgadmin/.pgpass
+
+# ファイルの権限を設定（所有権の関係上一時的にrootにスイッチ）
+USER root
+RUN chown pgadmin:root /home/pgadmin/.pgpass
+USER pgadmin
+RUN chmod 600 /home/pgadmin/.pgpass

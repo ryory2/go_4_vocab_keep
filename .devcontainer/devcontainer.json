@@ -1,0 +1,49 @@
+// devcontainer.json のフォーマット詳細については、https://aka.ms/devcontainer.json を参照してください。
+// 設定オプションについては、https://github.com/devcontainers/templates/tree/main/src/go の README を参照してください。
+{
+	"name": "Go", // コンテナの名前。VS Code に表示されます。 任意の文字列。
+	// 事前にビルドされた Go のイメージを使うこともできます。詳細: https://containers.dev/guide/dockerfile
+	// "image": "mcr.microsoft.com/devcontainers/go:1-1.23-bookworm", // 事前にビルドされたイメージを使う場合は、この行のコメントを外し、dockerComposeFileはコメントアウトします。
+	// Docker Hub 等で公開されている Go のイメージを使用可能。 `image` と `dockerComposeFile` は同時に指定できません。
+	"dockerComposeFile": "../docker/docker-compose.local.yml", // 使用する Docker Compose ファイルのパス。相対パス指定。 複数のファイル指定可能(例: `["../docker-compose.yml", "./docker-compose.override.yml"]`)。
+	"service": "task_go", // Docker Compose ファイルで定義されているサービス名。このサービスが開発コンテナとして使用されます。 `dockerComposeFile` で指定したファイルに定義されているサービス名を選択。
+	"shutdownAction": "stopCompose", // VS Codeウィンドウを閉じた時の挙動。"none", "stopContainer", "stopCompose" から選択。
+	// "stopCompose": `docker-compose down` を実行。全てのサービスを停止。
+	// "stopContainer": 開発コンテナのみ停止。
+	// "none": 何もしない。
+	"workspaceFolder": "/app", // コンテナ内のワークスペースディレクトリ。プロジェクトのルートディレクトリがここにマウントされます。 コンテナ内の絶対パス。
+	// "forwardPorts": [ // コンテナのポートをローカルマシンに転送します。
+	// 	8080 // Go アプリケーションが listen するポート。 ローカルポート:コンテナポート の形式で指定可能 (例: `8081:8080`)。省略時は同じポート番号。
+	// ],
+	"postCreateCommand": "cd /app && air -c ./cmd/.air.toml", // コンテナ作成後に実行されるコマンド。 air を使用してホットリロードを実現します。 任意のコマンド、またはスクリプト。
+	"customizations": { // VS Code のカスタマイズ設定
+		"vscode": {
+			// コンテナ作成時に settings.json に設定されるデフォルト値。
+			"settings": { // VS Code の設定
+				"go.useLanguageServer": true, // Go 言語サーバー (gopls) を使用します。コード補完や lint などを提供します。 true / false
+				"go.gopath": "/go", // GOPATH を /go に設定します。通常は変更不要です。 コンテナ内のパス。
+				"go.goroot": "/usr/local/go", // GOROOT を /usr/local/go に設定します。通常は変更不要です。 コンテナ内のパス。
+				"go.toolsManagement.autoUpdate": true, // Go ツールを自動的に更新します。 true / false
+				"go.lintOnSave": "package", // 保存時にパッケージ単位で lint を実行します。 "off", "package", "workspace", "file" から選択。
+				"go.vetOnSave": "package", // 保存時にパッケージ単位で vet を実行します。 "off", "package", "workspace", "file" から選択。
+				"go.buildOnSave": "off", // 保存時にビルドを実行しません。 air で自動ビルドするため。"on", "off", "workspace" から選択。
+				// "go.delveConfig": {
+				// 	"dlvArgs": [ // delve の引数。
+				// 		"--listen=:2345", // デバッグポート
+				// 		"--headless=true", // ヘッドレスモード（デバッグコンソールを表示しない）
+				// 		"--api-version=2", // API バージョン
+				// 		"--accept-multiclient" // 複数クライアント接続を許可
+				// 	],
+				// 	"console": "integratedTerminal", // ターミナルでデバッグコンソールを表示
+				// }
+			},
+			"extensions": [ // コンテナにインストールされる VS Code 拡張機能。
+				"golang.go" // Go 拡張機能。 拡張機能のIDを指定。
+			]
+		}
+	},
+	"forwardPorts": [
+		2345, // デバッグポート
+		8080
+	]
+}

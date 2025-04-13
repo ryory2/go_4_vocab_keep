@@ -1,0 +1,18 @@
+Execution started at 2025/02/16 23:01:08.90 
+-------------------------------------------------- 
+Batch file directory: C:\workspace\go_1_test_repository\script\ 
+"■AWSログイン" 
+Login Succeeded
+"■ビルド" 
+"■タグつけ" 
+"■プッシュ" 
+The push refers to repository [990606419933.dkr.ecr.ap-northeast-1.amazonaws.com/test/go_1_test_repository]
+b219a6cab26b: Preparing
+547a2f6851ce: Preparing
+08000c18d16d: Preparing
+547a2f6851ce: Layer already exists
+08000c18d16d: Layer already exists
+b219a6cab26b: Layer already exists
+latest: digest: sha256:c0e7b56808d7700445d2d51e9e23c146aa1c34c20e59ce2a98afd852875660e3 size: 945
+Execution finished at 2025/02/16 23:01:13.43 
+-------------------------------------------------- 

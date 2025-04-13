@@ -1,0 +1,14 @@
+{
+    "Servers": {
+        "1": {
+            "Name": "container_postgres",
+            "Group": "container_postgres",
+            "Host": "container_postgres",
+            "Port": 5432,
+            "Username": "admin",
+            "SSLMode": "prefer",
+            "MaintenanceDB": "vocab_keep",
+            "PassFile": "/home/pgadmin/.pgpass"
+        }
+    }
+}

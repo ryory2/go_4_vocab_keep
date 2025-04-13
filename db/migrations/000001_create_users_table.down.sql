@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS learning_progress;
+DROP TABLE IF EXISTS words;
+DROP TABLE IF EXISTS tenants;

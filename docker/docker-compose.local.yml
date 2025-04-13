@@ -1,0 +1,94 @@
+version: '3.8'  # Docker Composeファイルのバージョンを指定します。ここではバージョン3.8を使用しています。
+
+services:  # サービス定義の開始です。ここではpostgresとpgadminの2つのサービスを定義します。
+  task_go:
+    build:
+      context: ./../ # プロジェクトルートに設定
+      dockerfile: docker/services/go/Dockerfile.local
+    ports:
+      - "8080:8080"
+      - "2345:2345"    # Delveのポート
+    # depends_on:
+    #   - task_postgres
+    env_file:
+      - ./env/.env.local      # 本番用環境変数ファイルを読み込む
+    environment:
+      - DB_HOST=task_postgres
+      - DB_PORT=5432
+      - DB_USER=admin
+      - DB_PASSWORD=password
+      - DB_NAME=vocab_keep
+    volumes:
+      - ../.:/app
+    networks:
+      - my-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M # ハードリミット 512MB
+        reservations:
+          memory: 256M # ソフトリミット (予約) 256MB
+
+  task_postgres:  # "postgres"という名前のサービスを定義します。
+    image: postgres:16.2  # 使用するDockerイメージを指定します。ここではPostgreSQLのバージョン16.2を使用しています。
+    container_name: container_postgres  # コンテナの名前を"postgres"に設定します。これにより、コンテナを識別しやすくなります。
+    environment:  # コンテナ内で使用する環境変数を設定します。
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password  # PostgreSQLのスーパーユーザーのパスワードを設定します。セキュリティのため、強力なパスワードに変更してください。
+      POSTGRES_DB: vocab_keep  # デフォルトで作成されるデータベース名を"example"に設定します。
+      POSTGRES_INITDB_ARGS: --encoding=UTF-8  # 初期化時の引数を指定します。ここではデータベースのエンコーディングをUTF-8に設定しています。
+      LANG: C  # コンテナ内のロケール言語をCに設定します。
+      TZ: Asia/Tokyo  # コンテナのタイムゾーンを東京に設定します。
+      PGTZ: Asia/Tokyo  # PostgreSQLのタイムゾーンを東京に設定します。
+      POSTGRES_LOG_ERROR_VERBOSITY: verbose   # エラーログの詳細度 (通常は 'default', 'verbose', 'terse' のいずれか)
+      POSTGRES_LOG_STATEMENT: all  # 全てのクエリログを出力
+      POSTGRES_LOG_MIN_DURATION_STATEMENT: 1000  # 1秒以上かかるクエリをログに記録
+      POSTGRES_LOG_CONNECTIONS: on  # 接続ログを有効化
+      POSTGRES_LOG_DISCONNECTIONS: on  # 切断ログを有効化
+    ports:  # ホストとコンテナ間のポートマッピングを設定します。
+      - "5432:5432"  # ホストのポート5432をコンテナのポート5432にマッピングします。PostgreSQLのデフォルトポートです。
+    volumes:  # ホストとコンテナ間で共有するボリュームを設定します。
+      # - ./docker/postgres/logs:/var/log/postgresql  # ログの出力先
+      - volumes_pgdata:/var/lib/postgresql/data  # "pgdata"という名前のボリュームをコンテナ内の/var/lib/postgresql/dataにマッピングします。データの永続化に使用します。
+      # - ./services/postgres/initdb.d:/docker-entrypoint-initdb.d
+    networks:  # サービスが接続するネットワークを指定します。
+      - my-network  # "network"という名前のネットワークに接続します。
+    restart: always  # コンテナが停止した場合に自動的に再起動するポリシーを設定します。"always"は常に再起動を試みます。
+
+  task_pgadmin:  # "pgadmin"という名前のサービスを定義します。
+    # https://www.pgadmin.org/docs/pgadmin4/8.12/container_deployment.html
+    build:
+      context: ./../ # プロジェクトルートに設定
+      dockerfile: docker/services/pgadmin/Dockerfile.local
+    image: image_custom_pgadmin
+    # image: dpage/pgadmin4:8.12  # パスワードを自動設定できないため、カスタムイメージを利用
+    container_name: container_pgadmin  # コンテナの名前を"pgadmin"に設定します。これにより、コンテナを識別しやすくなります。
+    # user: root
+    restart: always  # コンテナが停止した場合に自動的に再起動するポリシーを設定します。"always"は常に再起動を試みます。
+    ports:  # ホストとコンテナ間のポートマッピングを設定します。
+      - "8081:80"  # ホストのポート8080をコンテナのポート80にマッピングします。ブラウザから `http://localhost:8080` でアクセス可能になります。
+    environment:  # コンテナ内で使用する環境変数を設定します。
+      PGADMIN_DEFAULT_EMAIL: your_email@example.com  # pgAdminにログインするための初期管理者アカウントを設定する際に使用されるメールアドレス。
+      PGADMIN_DEFAULT_PASSWORD: password  # pgAdminにログインする際のデフォルトのパスワードを設定します。強力なパスワードに変更してください。
+      PGADMIN_CONFIG_SERVER_MODE: "False"  # サーバーモードを無効に設定します。これにより、シングルユーザーモードで動作します。
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"  # マスターパスワードの要求を無効に設定します。
+      PGADMIN_CONFIG_UPGRADE_CHECK_ENABLED: "False"
+      # PGADMIN_PREFERENCES_JSON_FILE: "/pgadmin/preferences.json" #設定ファイルの読み込み場所を上書き。デフォルト「/pgadmin4/preferences.json」を読み込む
+      # PGADMIN_SERVER_JSON_FILE: "/pgadmin/server.json" #サーバー接続先定義の読み込み場所を上書き。デフォルト「/pgadmin4/server.json」を読み込む
+    volumes:  # ホストとコンテナ間で共有するボリュームを設定します。
+      - volumes_pgadmin:/var/lib/pgadmin  # "pgadmin_data"という名前のボリュームをコンテナ内の/var/lib/pgadminにマッピングします。設定やデータの永続化に使用します。
+      - ./services/pgadmin/preferences.json:/pgadmin4/preferences.json # 「デフォルト: /pgadmin4/preferences.json」、「プリファレンスキー値のマッピングは、 [Preference UI] ダイアログの個々の設定。」
+      - ./services/pgadmin/servers.json:/pgadmin4/servers.json # サーバー接続先定義ファイルの同期
+      # - ./docker/pgadmin/pgpass:/pgpass # サーバー接続先定義ファイルの同期（パスワードファイルの設定は厳しいのでやらない）
+    networks:  # サービスが接続するネットワークを指定します。
+      - my-network  # "network"という名前のネットワークに接続します。
+    # entrypoint: /bin/sh -c "chmod 600 /pgpass; /entrypoint.sh;"
+    depends_on:  # サービスの依存関係を定義します。
+      - task_postgres  # "postgres"サービスが先に起動することを保証します。
+
+volumes:  # Docker Composeで使用するボリュームを定義します。データの永続化に使用されます。
+  volumes_pgdata:  # "pgdata"という名前のボリュームを定義します。PostgreSQLのデータを保存します。
+  volumes_pgadmin:  # "pgadmin-data"という名前のボリュームを定義します。pgAdminのデータを保存します。
+
+networks:
+  my-network:

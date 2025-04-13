@@ -1,0 +1,143 @@
+# --- 基本設定 ---
+# ★★★パスの解釈は、air コマンドを実行したカレントディレクトリ (/app) を基準に行われる
+# 例）「cd /app && air -c ./cmd/.air.toml」の場合、カレントディレクトリは「/app」
+
+root = "."
+# air がファイルの変更を監視するルートディレクトリを指定します。
+# "." はカレントディレクトリを意味します。
+# 実行時のカレントディレクトリは `/app` なので、air は `/app` ディレクトリ以下を監視します。
+
+testdata_dir = "testdata"
+# テストデータディレクトリとして認識されるディレクトリ名。
+# air の監視や特定の操作で使われる可能性がありますが、直接的なビルド/実行には影響しないことが多いです。
+# パスは `/app/testdata` と解釈されます。
+
+tmp_dir = "./cmd/tmp"
+# 一時ファイル（ビルドされたバイナリなど）を格納するディレクトリ名。
+# パスは `/app/cmd/tmp` と解釈されます。
+
+# --- ビルド設定 ([build] セクション) ---
+# このセクションは、ファイル変更が検出されたときに air が実行するビルドと実行プロセスを定義します。
+
+[build]
+  args_bin = []
+  # `bin` で指定されたバイナリ実行時に渡す引数のリスト。ここでは空です。
+
+  bin = "./cmd/tmp/main"
+  # 実行するバイナリファイルのパス。
+  # カレントディレクトリ (`/app`) からの相対パスなので、`/app/tmp/main` を指します。
+  # `cmd` でビルドされたバイナリがこのパスに存在する必要があります。
+
+  cmd = "go build -gcflags \"all=-N -l\" -o ./cmd/tmp/main ./cmd"
+  # ファイル変更時に実行されるビルドコマンド。
+  # カレントディレクトリ (`/app`) で実行されます。
+  # `-o ./tmp/main` は、ビルド成果物を `/app/tmp/main` に出力することを意味します。
+  # **注意:** このコマンドはビルド対象の Go パッケージを指定していません。
+  # 正しく動作させるためには、例えば `go build -gcflags \"all=-N -l\" -o ./tmp/main ./cmd/myapp` のように
+  # main パッケージが含まれるディレクトリ (`/app/cmd/myapp`) を指定する必要があります。
+
+  delay = 1000
+  # ファイル変更を検出してから `cmd` を実行するまでの遅延時間 (ミリ秒)。
+
+  exclude_dir = ["assets", "tmp", "vendor", "testdata"]
+  # ファイル変更監視から除外するディレクトリのリスト。
+  # パスは `root` (`/app`) からの相対パスで解釈されます (例: `/app/tmp`, `/app/vendor`)。
+
+  exclude_file = []
+  # ファイル変更監視から除外する特定のファイルのリスト。
+
+  exclude_regex = ["_test.go"]
+  # ファイル変更監視から除外するファイル名を正規表現で指定。ここではテストファイルを除外。
+
+  exclude_unchanged = false
+  # true の場合、変更されていないファイルタイプに関連するビルド/再起動をスキップします (通常は false)。
+
+  follow_symlink = false
+  # true の場合、シンボリックリンク先のファイルの変更も監視します。
+
+  full_bin = "dlv exec --headless --listen=:2345 --accept-multiclient --continue ./cmd/tmp/main"
+  # デバッガー (Delve) を使用してアプリケーションを実行する際のコマンド。
+  # `./tmp/main` は `/app/tmp/main` を指します。デバッグ実行しない場合は通常無視されます。
+
+  include_dir = []
+  # 変更監視の対象に**含める**ディレクトリのリスト。指定がない場合、`root` 以下の全ディレクトリが対象（除外設定を除く）。
+
+  include_ext = ["go", "tpl", "tmpl", "html"]
+  # 変更監視の対象とするファイルの拡張子リスト。これ以外の拡張子のファイルが変更されても再ビルドされません。
+
+  include_file = []
+  # 変更監視の対象に**含める**特定のファイルのリスト。
+
+  kill_delay = "0s"
+  # アプリケーションプロセスを強制終了する前に待機する時間。 "0s" は即時終了。
+
+  log = "build-errors.log"
+  # ビルドエラーが発生した場合のログ出力先ファイル名。
+  # カレントディレクトリ (`/app`) に `build-errors.log` として出力されます。 (`/app/build-errors.log`)
+
+  poll = false
+  # true の場合、ファイルシステムのポーリングを使って変更を検出します (リソース消費が多い場合がある)。false は OS のイベント通知機能を使用。
+
+  poll_interval = 0
+  # `poll = true` の場合のポーリング間隔 (ミリ秒)。
+
+  post_cmd = []
+  # ビルド成功後に実行されるコマンドのリスト。
+
+  pre_cmd = []
+  # ビルド実行前に実行されるコマンドのリスト。
+
+  rerun = false
+  # true の場合、ビルドせずに前回のバイナリを再実行します (通常は false)。
+
+  rerun_delay = 500
+  # `rerun = true` の場合の再実行までの遅延時間 (ミリ秒)。
+
+  send_interrupt = false
+  # true の場合、プロセス再起動時に SIGTERM の代わりに SIGINT を送信します。
+
+  stop_on_error = false
+  # true の場合、ビルドエラーが発生したら air を停止します。
+
+  on_build_end = ["echo \"PID: $$\""]
+  # ビルドが完了した時に実行するコマンド。（ここではプロセスのPIDを表示）
+
+# --- 表示色設定 ([color] セクション) ---
+# air のログ出力の色を設定します。
+
+[color]
+  app = ""          # アプリケーション自体の出力色 (デフォルト)
+  build = "yellow"  # ビルド関連のログ色
+  main = "magenta"  # air 自体のメインプロセスログ色
+  runner = "green"  # アプリケーション実行制御ログ色
+  watcher = "cyan"  # ファイル監視ログ色
+
+# --- ログ設定 ([log] セクション) ---
+
+[log]
+  main_only = false # true にすると、air の watcher などのログを抑制し、アプリケーションの出力のみ表示しようとします。
+  silent = false    # true にすると、air の全てのログ出力を抑制します。
+  time = false      # true にすると、ログにタイムスタンプを追加します。
+
+# --- その他設定 ([misc] セクション) ---
+
+[misc]
+  clean_on_exit = false
+  # true の場合、air 終了時に `tmp_dir` (`/app/tmp`) を削除します。
+
+# --- プロキシ設定 ([proxy] セクション) ---
+# air をリバースプロキシとして動作させる設定 (通常は使わない)。
+
+[proxy]
+  app_port = 0      # アプリケーションがリッスンするポート (自動検出させる場合は 0)
+  enabled = false   # プロキシ機能を有効にするか
+  proxy_port = 0    # air がリッスンするプロキシポート
+
+# --- スクリーン設定 ([screen] セクション) ---
+# ターミナル表示に関する設定。
+
+[screen]
+  clear_on_rebuild = false
+  # true の場合、再ビルド時にターミナル画面をクリアします。
+  keep_scroll = true
+  # true の場合、ターミナルのスクロール位置を保持しようとします。

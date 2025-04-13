@@ -1,0 +1,74 @@
+# Go build / run artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary produced by go test -c
+*.test
+
+# Output of go setup
+_test/
+_testmain.go
+
+# Folders for output binaries/artifacts
+/bin/
+/pkg/ # macOSのpkgインストーラ用フォルダとGoのpkgを区別するため、通常ルートのpkgは無視しない場合もある
+/dist/
+/build/
+/release/
+
+# Dependency directories (Go Modulesを使用している場合、通常vendorはコミットしない)
+/vendor/
+
+# Temporary files / build caches
+/tmp/ # airのtmp_dirで指定したディレクトリ
+/.cache/
+/.vscode-server/ # VS Code Remote Development
+/.idea/ # JetBrains IDEs
+*.swp # Vim swap files
+*~ # Editor backup files
+.DS_Store # macOS specific
+
+# Configuration files (sensitive or environment-specific)
+# *.yaml は一般的にコミットするが、秘密情報を含む可能性のあるものは除外
+# config.yaml は example をコミットし、実際のファイルは無視する
+config.yaml
+/configs/config.yaml
+*.env
+.envrc
+
+# Log files
+*.log
+/logs/
+# airのビルドエラーログ (設定で tmp/ に移動した場合)
+# tmp/air-build-errors.log
+
+# Coverage / Profiling output
+coverage.out
+coverage.html
+profile.out
+cpu.pprof
+mem.pprof
+*.prof
+
+# Other specific tools/files
+# .air.toml は設定なので通常コミットする
+# .devcontainer/ は開発環境定義なので通常コミットする
+
+# Operating system / archive files
+*.zip
+*.tar.gz
+*.rar
+
+# IDE / Editor specific settings (個人設定は無視)
+/.vscode/settings.json # 共有すべき設定は除く場合がある
+/.vscode/launch.json # 共有すべき設定は除く場合がある
+# .idea/workspace.xml
+# .idea/shelf/
+
+# --- プロジェクト固有のものがあれば追記 ---
+# 例: 特定の生成ファイルなど
+# /generated/
+/cmd/tmp/

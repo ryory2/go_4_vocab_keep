@@ -1,0 +1,22 @@
+# ビルドステージ: Go の公式イメージを使用
+FROM golang:1.23-alpine
+# curl をインストール
+RUN apk update && apk add --no-cache curl
+RUN apk add --no-cache postgresql-client
+
+# モジュールファイルとソースコードのコピー
+WORKDIR /app
+COPY ./ .
+
+RUN go mod tidy
+RUN go install -v github.com/air-verse/air@latest
+RUN go install -v github.com/go-delve/delve/cmd/dlv@latest
+RUN go install -v -tags 'postgres file' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+
+# ポート8080を公開
+EXPOSE 8080 2345
+
+WORKDIR /app/cmd
+
+# アプリケーションの起動
+CMD ["tail", "-f", "/dev/null"]
