@@ -1,8 +1,15 @@
 # ビルドステージ: Go の公式イメージを使用
 FROM golang:1.23-alpine
 # curl をインストール
+# RUN を一つにまとめるとレイヤー数を削減できます
 RUN apk update && apk add --no-cache curl
 RUN apk add --no-cache postgresql-client
+RUN apk add --no-cache tzdata
+
+# --- タイムゾーン設定 ---
+ENV TZ="Asia/Tokyo"
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+# -----------------------
 
 # モジュールファイルとソースコードのコピー
 WORKDIR /app

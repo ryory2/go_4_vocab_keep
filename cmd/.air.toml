@@ -75,10 +75,10 @@ tmp_dir = "./cmd/tmp"
   # ビルドエラーが発生した場合のログ出力先ファイル名。
   # カレントディレクトリ (`/app`) に `build-errors.log` として出力されます。 (`/app/build-errors.log`)
 
-  poll = false
+  poll = true
   # true の場合、ファイルシステムのポーリングを使って変更を検出します (リソース消費が多い場合がある)。false は OS のイベント通知機能を使用。
 
-  poll_interval = 0
+  poll_interval = 500
   # `poll = true` の場合のポーリング間隔 (ミリ秒)。
 
   post_cmd = []
