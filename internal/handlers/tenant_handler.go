@@ -5,7 +5,9 @@ package handlers
 
 import (
 	// "log" は、ログメッセージを出力するためのGo標準パッケージです。
+	"errors"
 	"log"
+
 	// "net/http" は、HTTPクライアントとサーバーの実装を含むGo標準パッケージです。
 	// Webサーバーのハンドラ関数でリクエスト(r)とレスポンス(w)を扱うために使います。
 	"net/http"
@@ -16,7 +18,23 @@ import (
 	// "go_4_vocab_keep/internal/webutil" は、Web関連のユーティリティ関数 (JSON処理、レスポンス生成など) を
 	// 提供する、このプロジェクト固有のパッケージです。
 	"go_4_vocab_keep/internal/webutil" // プロジェクト名修正
+
+	"github.com/go-playground/validator/v10" // validator パッケージをインポート
 )
+
+// --- バリデータインスタンスの準備 ---
+// validate は validator のインスタンスです。
+// 通常、アプリケーション全体で一つだけ生成し、使い回します。
+// パッケージレベルの変数として定義するのが一般的です。
+var validate *validator.Validate
+
+// パッケージ初期化関数: main より先に一度だけ実行される
+func init() {
+	validate = validator.New()
+	log.Println("Validator initialized.")
+	// ここでカスタムバリデーションなどを登録することも可能
+	// 例: validate.RegisterValidation("my_custom_tag", myCustomValidationFunc)
+}
 
 // --- 構造体定義 ---
 
@@ -85,10 +103,14 @@ type CreateTenantRequest struct {
 	/**
 	 * @field Name
 	 * @brief 作成するテナントの名前。
-	 * @tag json:"name" - JSONボディの "name" フィールドとこのフィールドを対応付けます。
-	 * @tag validate:"required" - (バリデーションライブラリを使う場合) このフィールドが必須であることを示します。
+	 * @tag json:"name" - JSONキーのマッピング。
+	 * @tag validate:"required,min=1,max=100" - バリデーションルール。
+	 *        - required: 必須項目。
+	 *        - min=1: 最低1文字。
+	 *        - max=100: 最大100文字。
+	 *        (ルールは必要に応じて調整してください)
 	 */
-	Name string `json:"name" validate:"required"`
+	Name string `json:"name" validate:"required,min=10,max=100"` // バリデーションタグを修正・追加
 }
 
 // --- メソッド定義 ---
@@ -136,15 +158,33 @@ func (h *TenantHandler) CreateTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// --- バリデーション (入力値チェック) ---
-	// 簡単なバリデーション: リクエストの `Name` フィールドが空文字列でないかチェックします。
-	// 本来は `go-playground/validator` のような専用のライブラリを使うのが推奨されます。
-	// (`validate:"required"` タグと連携させるなど)
-	if req.Name == "" {
-		// 名前が空の場合、エラーレスポンスを返して処理を中断します。
-		webutil.RespondWithError(w, http.StatusBadRequest, "Tenant name is required")
-		return
+	// --- バリデーション (go-playground/validator を使用) ---
+	// validate.Struct(req) を呼び出して、req インスタンスのタグに基づきバリデーションを実行
+	err := validate.Struct(req)
+	if err != nil {
+		// バリデーションエラーが発生した場合
+		var validationErrors validator.ValidationErrors
+		// エラーがバリデーションエラーの型かを確認 (errors.As を使うのが推奨)
+		if errors.As(err, &validationErrors) {
+			// バリデーションエラーの詳細を取得し、クライアントに分かりやすいメッセージを返す
+			// (ここでは単純なエラーメッセージを返す例)
+			// より詳細なエラーレスポンス（どのフィールドがどのルール違反か）を生成することも可能
+			errorMsg := "Validation failed: " + validationErrors.Error() // エラー詳細を含むメッセージ
+			log.Printf("Validation error for CreateTenant request: %v", validationErrors)
+			webutil.RespondWithError(w, http.StatusBadRequest, errorMsg) // 400 Bad Request を返す
+		} else {
+			// バリデーションエラー以外の予期せぬエラーの場合
+			log.Printf("Unexpected error during validation: %v", err)
+			webutil.RespondWithError(w, http.StatusInternalServerError, "Error validating request") // 500 Internal Server Error
+		}
+		return // 処理を中断
 	}
+	// --- バリデーションここまで ---
+
+	// バリデーションが成功した場合のみ、以下の処理に進む
+
+	// (削除) 以前の手動バリデーションは不要になる
+	// if req.Name == "" { ... }
 
 	// --- ビジネスロジックの呼び出し (Service層) ---
 	// `h.service.CreateTenant` メソッドを呼び出して、実際にテナントを作成する処理を依頼します。
