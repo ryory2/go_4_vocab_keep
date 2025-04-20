@@ -20,6 +20,7 @@ RUN go install -v github.com/air-verse/air@latest
 RUN go install -v github.com/go-delve/delve/cmd/dlv@latest
 RUN go install -v -tags 'postgres file' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
 RUN go install -v github.com/vektra/mockery/v2@latest
+# RUN go install github.com/vektra/mockery/v2@v2.30.1
 
 # ポート8080を公開
 EXPOSE 8080 2345

@@ -1,4 +1,4 @@
-// internal/repository/tenant_repository.go
+//go:generate mockery --name TenantRepository --dir . --output ./mocks --outpkg mocks --structname TenantRepository --filename tenant_repository_mock.go
 package repository
 
 import (
