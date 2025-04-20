@@ -181,37 +181,36 @@ func (s *wordService) UpdateWord(ctx context.Context, tenantID, wordID uuid.UUID
 	return updatedWord, nil
 }
 
+// internal/service/word_service.go (DeleteWord 確認)
 func (s *wordService) DeleteWord(ctx context.Context, tenantID, wordID uuid.UUID) error {
-	// 論理削除もアトミックに行いたい場合はトランザクション内で実行
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// 存在確認 (削除対象があるか)
-		_, err := s.wordRepo.FindByID(ctx, tx, tenantID, wordID)
-		if err != nil {
-			return err // model.ErrNotFound or model.ErrInternalServer
-		}
-
-		// 削除実行
-		if err := s.wordRepo.Delete(ctx, tx, tenantID, wordID); err != nil {
-			log.Printf("Error deleting word in transaction: %v", err)
-			// Delete内でErrNotFoundが返る可能性あり (並行処理で先に消された場合など)
-			if errors.Is(err, model.ErrNotFound) {
+		// 1. 存在確認 (論理削除されていないか)
+		var word model.Word
+		// GORMのFirstはデフォルトで deleted_at IS NULL を考慮する
+		result := tx.Where("tenant_id = ? AND word_id = ?", tenantID, wordID).First(&word)
+		if result.Error != nil {
+			if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 				return model.ErrNotFound
 			}
+			log.Printf("Error finding word %s for deletion: %v", wordID, result.Error)
 			return model.ErrInternalServer
+		}
+
+		// 2. GORMの Delete を呼び出す (論理削除が実行される)
+		deleteResult := tx.Delete(&model.Word{}, wordID) // 主キーを指定して削除
+		// または tx.Delete(&word) // 取得したオブジェクトを渡しても良い
+
+		if deleteResult.Error != nil {
+			log.Printf("Error deleting word %s: %v", wordID, deleteResult.Error)
+			return model.ErrInternalServer
+		}
+		if deleteResult.RowsAffected == 0 {
+			// Firstで取得できているので、通常ここには来ない
+			log.Printf("No rows affected when deleting word %s", wordID)
+			return model.ErrNotFound // または Internal Server Error
 		}
 		return nil // コミット
 	})
-
-	if err != nil {
-		if errors.Is(err, model.ErrNotFound) {
-			return err
-		}
-		log.Printf("Transaction failed for DeleteWord: %v", err)
-		return model.ErrInternalServer
-	}
-
-	// 関連するProgressの扱いは現状維持 (Wordに紐づいたまま残る)
-	// 必要ならここでProgressも削除または無効化する処理を追加
-
-	return nil
+	// ... (トランザクションエラーハンドリング) ...
+	return err
 }

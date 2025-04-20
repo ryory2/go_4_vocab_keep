@@ -12,7 +12,7 @@ CREATE TABLE words (
     tenant_id UUID NOT NULL, -- NOT NULL制約
     term VARCHAR(255) NOT NULL, -- NOT NULL制約 (単語は必須)
     definition TEXT NOT NULL, -- NOT NULL制約 (定義/答えも必須)
-    is_deleted BOOLEAN NOT NULL DEFAULT FALSE, -- NOT NULL制約, デフォルト制約 (デフォルトは有効状態)
+    deleted_at TIMESTAMP NULL, -- NULL許容 (論理削除用)
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     -- その他のカラム...
@@ -20,6 +20,7 @@ CREATE TABLE words (
     -- 外部キー制約
     FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id) ON DELETE CASCADE
     -- ↑ tenant_idはtenantsテーブルに存在する値しか許可しない
+    -- CREATE INDEX idx_words_deleted_at ON words(deleted_at)
     -- ON DELETE CASCADE: 親テナントが削除されたら、関連する単語も自動的に削除する (要件に応じて NO ACTION, SET NULL なども検討)
 
     -- 一意制約 (オプション: 同じテナント内で同じ単語の重複を許さない場合)

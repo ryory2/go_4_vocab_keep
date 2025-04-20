@@ -80,5 +80,8 @@ myproject/
 │       └── main_test.go
 
 
+# ビジネスロジックテスト
+go test -v ./internal/service/
 
+# ハンドラーてえ嘘t
 go test -v ./internal/service/

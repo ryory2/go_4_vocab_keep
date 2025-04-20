@@ -22,12 +22,6 @@ services:  # サービス定義の開始です。ここではpostgresとpgadmin�
       - ../.:/app
     networks:
       - my-network
-    deploy:
-      resources:
-        limits:
-          memory: 512M # ハードリミット 512MB
-        reservations:
-          memory: 256M # ソフトリミット (予約) 256MB
 
   task_postgres:  # "postgres"という名前のサービスを定義します。
     image: postgres:16.2  # 使用するDockerイメージを指定します。ここではPostgreSQLのバージョン16.2を使用しています。
