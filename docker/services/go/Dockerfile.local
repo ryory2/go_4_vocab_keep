@@ -11,6 +11,11 @@ ENV TZ="Asia/Tokyo"
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 # -----------------------
 
+# --- go-sqlite3 というライブラリは、動作するために Cgo（GoからC言語のコードを呼び出す機能）が必要 ---
+RUN apk add build-base gcc
+ENV CGO_ENABLED=1
+# -----------------------
+
 # モジュールファイルとソースコードのコピー
 WORKDIR /app
 COPY ./ .
@@ -20,7 +25,6 @@ RUN go install -v github.com/air-verse/air@latest
 RUN go install -v github.com/go-delve/delve/cmd/dlv@latest
 RUN go install -v -tags 'postgres file' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
 RUN go install -v github.com/vektra/mockery/v2@latest
-# RUN go install github.com/vektra/mockery/v2@v2.30.1
 
 # ポート8080を公開
 EXPOSE 8080 2345

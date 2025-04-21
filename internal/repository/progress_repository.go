@@ -1,4 +1,4 @@
-// internal/repository/progress_repository.go
+//go:generate mockery --name ProgressRepository --dir . --output ./mocks --outpkg mocks --structname ProgressRepository --filename progress_repository_mock.go
 package repository
 
 import (
