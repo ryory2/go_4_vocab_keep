@@ -1,4 +1,3 @@
-// internal/service/tenant_service_test.go
 package service
 
 import (
@@ -154,6 +153,48 @@ func Test_tenantService_CreateTenant(t *testing.T) {
 		wantErr      error  // 期待されるエラー (nilならエラーなし)
 		wantTenantID bool   // テナントIDが生成されることを期待するか
 	}{
+
+		{
+			name:      "正常系: 新規テナント作成成功",
+			inputName: testTenantName,
+			setupMock: func() {
+				// 1. FindByName (重複チェック) が呼ばれるはず
+				mockTenantRepo.On("FindByName", ctx, mock.AnythingOfType("*gorm.DB"), testTenantName).
+					Return(nil, model.ErrNotFound). // 見つからない(ErrNotFound)ことを期待
+					Once()                          // 1回だけ呼ばれる
+
+				// 2. Create が呼ばれるはず
+				// 期待値は（*model.Tenant, error）→（適当なmodel、nil）となるはず。
+				// mockTenantRepo (リポジトリの偽物) に対して、メソッド呼び出しで期待したい値を設定
+				//     .On("メソッド名", 引数1, 引数2, ...) : 「このメソッドが、これらの引数で呼ばれたら」という過程を設定
+				//       - "Create": 期待するメソッド名。
+				//       - ctx: 期待する第一引数 (Context)。テストで使っている ctx と同じもの。
+				//       - mock.AnythingOfType("*gorm.DB"): 期待する第二引数 (DB接続)。
+				//         テスト実行時に具体的なDB接続インスタンスは確定できないので、
+				//         「*gorm.DB 型の値なら何でもOK」という意味の特殊な指定を使います。
+				//       - testTenantName: 期待する第三引数 (検索する名前)。テストで使う inputName と同じもの。
+				// 　　→この場合、Createメソッドが呼ばれる。
+				// 　　→Createメソッドの引数は、「(ctx context.Context, db *gorm.DB, tenant *model.Tenant)」のため、3つの引数を容易
+				// 　　→
+				// 引数の tenant (*model.Tenant) は具体的な値がわからないため、mock.AnythingOfType を使う
+				// mock.AnythingOfType("*model.Tenant")
+				// この式自体が何か具体的な値を返すわけではなく、「この位置に来る引数は、
+				// 指定された型（この場合は *model.Tenant）であれば、具体的な値が何であってもマッチするとみなす」というルールを設定
+				// mock.On() メソッドは、このような特殊なマッチャーを受け取ることができるように設計されている。
+				//
+				mockTenantRepo.On("Create", ctx, mock.AnythingOfType("*gorm.DB"), mock.AnythingOfType("*model.Tenant")).
+					// 引数で渡されるテナントにIDがセットされているかなどを assert でチェックすることも可能
+					// .Run(func(args mock.Arguments) {
+					// 	arg := args.Get(2).(*model.Tenant) // 3番目の引数 (tenant) を取得
+					// 	assert.NotEqual(t, uuid.Nil, arg.TenantID)
+					// 	assert.Equal(t, testTenantName, arg.Name)
+					// }).
+					Return(nil). // Create は成功する (nil エラーを返す)
+					Once()
+			},
+			wantErr:      nil,  // エラーは発生しない
+			wantTenantID: true, // テナントIDは生成される
+		},
 		{
 			name: "異常系: テナント名が空",
 			// 以下が実行される。引数ctxはからのコンテキスト、tt.inputNameはinputName。
@@ -245,65 +286,6 @@ func Test_tenantService_CreateTenant(t *testing.T) {
 
 		}, // テストケース構造体の終わり
 		{
-			name:      "正常系: 新規テナント作成成功",
-			inputName: testTenantName,
-			setupMock: func() {
-				// 1. FindByName (重複チェック) が呼ばれるはず
-				mockTenantRepo.On("FindByName", ctx, mock.AnythingOfType("*gorm.DB"), testTenantName).
-					Return(nil, model.ErrNotFound). // 見つからない(ErrNotFound)ことを期待
-					Once()                          // 1回だけ呼ばれる
-
-				// 2. Create が呼ばれるはず
-				// 期待値は（*model.Tenant, error）→（適当なmodel、nil）となるはず。
-				// mockTenantRepo (リポジトリの偽物) に対して、メソッド呼び出しで期待したい値を設定
-				//     .On("メソッド名", 引数1, 引数2, ...) : 「このメソッドが、これらの引数で呼ばれたら」という過程を設定
-				//       - "Create": 期待するメソッド名。
-				//       - ctx: 期待する第一引数 (Context)。テストで使っている ctx と同じもの。
-				//       - mock.AnythingOfType("*gorm.DB"): 期待する第二引数 (DB接続)。
-				//         テスト実行時に具体的なDB接続インスタンスは確定できないので、
-				//         「*gorm.DB 型の値なら何でもOK」という意味の特殊な指定を使います。
-				//       - testTenantName: 期待する第三引数 (検索する名前)。テストで使う inputName と同じもの。
-				// 　　→この場合、Createメソッドが呼ばれる。
-				// 　　→Createメソッドの引数は、「(ctx context.Context, db *gorm.DB, tenant *model.Tenant)」のため、3つの引数を容易
-				// 　　→
-				// 引数の tenant (*model.Tenant) は具体的な値がわからないため、mock.AnythingOfType を使う
-				// mock.AnythingOfType("*model.Tenant")
-				// この式自体が何か具体的な値を返すわけではなく、「この位置に来る引数は、
-				// 指定された型（この場合は *model.Tenant）であれば、具体的な値が何であってもマッチするとみなす」というルールを設定
-				// mock.On() メソッドは、このような特殊なマッチャーを受け取ることができるように設計されている。
-				//
-				mockTenantRepo.On("Create", ctx, mock.AnythingOfType("*gorm.DB"), mock.AnythingOfType("*model.Tenant")).
-					// 引数で渡されるテナントにIDがセットされているかなどを assert でチェックすることも可能
-					// .Run(func(args mock.Arguments) {
-					// 	arg := args.Get(2).(*model.Tenant) // 3番目の引数 (tenant) を取得
-					// 	assert.NotEqual(t, uuid.Nil, arg.TenantID)
-					// 	assert.Equal(t, testTenantName, arg.Name)
-					// }).
-					Return(nil). // Create は成功する (nil エラーを返す)
-					Once()
-			},
-			wantErr:      nil,  // エラーは発生しない
-			wantTenantID: true, // テナントIDは生成される
-		},
-		// // --- ↓↓↓ テナント名が空の場合のテストケースを追加 ↓↓↓ ---
-		{
-			name: "異常系: テナント名が空文字列",
-			// 以下が実行される。引数ctxはからのコンテキスト、tt.inputNameはinputName。
-			// createdTenant, err := tenantService.CreateTenant(ctx, tt.inputName)
-			inputName: "", // repositoryのcreate関数の引数。空文字列を入力とする
-			setupMock: func() {
-				// サービス層のバリデーションで弾かれるはずなので、
-				// リポジトリのメソッド (Create) は呼び出されないことを期待。
-				// そのため、ここでは On() による設定は不要。
-			},
-			wantErr: model.ErrInvalidInput, // サービス層で定義された入力エラーを期待
-			// テストコードが tenantService.CreateTenant(ctx, "") を呼び出します。引数 name には "" が渡されます。
-			// CreateTenant 関数内の if name == "" の条件が評価されます。name は "" なので、条件は true になります。
-			// if 文の中の return nil, model.ErrInvalidInput が実行されます。
-			// CreateTenant 関数はここで処理を終了し、nil と model.ErrInvalidInput を返します。
-			// 重要な点: if 文で早期に return したため、その後のトランザクション処理や s.tenantRepo.Create(...) などのリポジトリメソッドは一切呼び出されません。
-		},
-		{
 			name: "異常系: 重複チェック中にDBエラー",
 			// 以下が実行される。引数ctxはからのコンテキスト、tt.inputNameはinputName。
 			// createdTenant, err := tenantService.CreateTenant(ctx, tt.inputName)
@@ -369,6 +351,275 @@ func Test_tenantService_CreateTenant(t *testing.T) {
 				if tt.wantTenantID {
 					assert.NotEqual(t, uuid.Nil, createdTenant.TenantID) // IDが生成されているか
 				}
+			}
+
+			// --- モックの検証 ---
+			// 設定したモックメソッドが期待通りに呼び出されたか検証
+			mockTenantRepo.AssertExpectations(t)
+		})
+	}
+}
+
+// --- ここから GetTenant のテストコード ---
+func Test_tenantService_GetTenant(t *testing.T) {
+	// --- テスト用の準備 ---
+	ctx := context.Background()
+	db := setupTestDB() // GetTenant は db を直接使うが、操作はモック経由
+	mockTenantRepo := new(mocks.TenantRepository)
+	tenantService := NewTenantService(db, mockTenantRepo)
+
+	testTenantID := uuid.New()       // テスト用の固定ID
+	expectedTenant := &model.Tenant{ // 正常系で返されることを期待するテナント
+		TenantID:  testTenantID,
+		Name:      "Test Tenant Get",
+		CreatedAt: time.Now().Add(-2 * time.Hour),
+		UpdatedAt: time.Now().Add(-1 * time.Hour),
+		// gorm.Model のフィールドは GORM が自動で埋めるか、DBから読み込む
+	}
+
+	// --- テストケースの定義 ---
+	tests := []struct {
+		name       string
+		inputID    uuid.UUID
+		setupMock  func(m *mocks.TenantRepository) // モック設定関数
+		wantErr    error
+		wantTenant *model.Tenant // 期待されるテナント (エラー時はnil)
+	}{
+		{
+			name:    "正常系: テナント取得成功",
+			inputID: testTenantID,
+			setupMock: func(m *mocks.TenantRepository) {
+				// FindByID が ctx, db, testTenantID で呼ばれたら、
+				// expectedTenant と nil エラーを返すように設定
+				m.On("FindByID", ctx, db, testTenantID).
+					Return(expectedTenant, nil).Once()
+			},
+			wantErr:    nil,            // エラーは期待しない
+			wantTenant: expectedTenant, // 期待するテナント
+		},
+		{
+			name:    "異常系: テナントが見つからない",
+			inputID: testTenantID,
+			setupMock: func(m *mocks.TenantRepository) {
+				// FindByID が ctx, db, testTenantID で呼ばれたら、
+				// nil テナントと model.ErrNotFound を返すように設定
+				m.On("FindByID", ctx, db, testTenantID).
+					Return(nil, model.ErrNotFound).Once()
+			},
+			wantErr:    model.ErrNotFound, // 見つからないエラーを期待
+			wantTenant: nil,               // テナントは返されない
+		},
+		{
+			name:    "異常系: リポジトリで予期せぬエラーが発生",
+			inputID: testTenantID,
+			setupMock: func(m *mocks.TenantRepository) {
+				// 予期せぬエラーをシミュレート
+				simulatedError := errors.New("database connection error")
+				// FindByID が呼ばれたら、nil と simulatedError を返す
+				m.On("FindByID", ctx, db, testTenantID).
+					Return(nil, simulatedError).Once()
+			},
+			// GetTenant はリポジトリのエラーをそのまま返す実装なので、
+			// モックで設定したエラーがそのまま返ることを期待
+			wantErr:    errors.New("database connection error"),
+			wantTenant: nil,
+		},
+		{
+			name:    "異常系: 不正なID (uuid.Nil)",
+			inputID: uuid.Nil, // ゼロ値のUUID
+			setupMock: func(m *mocks.TenantRepository) {
+				// 不正なIDで FindByID が呼ばれた場合、
+				// 見つからないエラー (ErrNotFound) が返ると想定
+				m.On("FindByID", ctx, db, uuid.Nil).
+					Return(nil, model.ErrNotFound).Once()
+			},
+			wantErr:    model.ErrNotFound, // 見つからないエラーを期待
+			wantTenant: nil,
+		},
+	}
+
+	// --- テストケースの実行 ---
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// --- 各テスト前のモックリセットと再設定 ---
+			mockTenantRepo.Mock = mock.Mock{} // モックの状態をリセット
+			if tt.setupMock != nil {
+				tt.setupMock(mockTenantRepo) // 現在のテストケース用のモックを設定
+			}
+
+			// --- テスト対象メソッドの実行 ---
+			tenant, err := tenantService.GetTenant(ctx, tt.inputID)
+
+			// --- アサーション (結果の検証) ---
+			if tt.wantErr != nil {
+				// エラーが期待される場合
+				require.Error(t, err, "Expected an error but got nil")
+				// エラーの種類または内容を比較
+				// サービスがエラーをラップしていない場合、errors.Is が有効
+				assert.ErrorIs(t, err, tt.wantErr, "Expected error '%v', but got '%v'", tt.wantErr, err)
+				// assert.EqualError(t, err, tt.wantErr.Error()) // エラーメッセージ文字列で比較する場合
+				assert.Nil(t, tenant, "Tenant should be nil on error")
+			} else {
+				// エラーが期待されない場合
+				require.NoError(t, err, "Did not expect an error but got: %v", err)
+				require.NotNil(t, tenant, "Expected a tenant but got nil")
+				// 取得したテナントが期待通りか比較
+				assert.Equal(t, tt.wantTenant, tenant, "Returned tenant does not match expected tenant")
+			}
+
+			// --- モックの検証 ---
+			// 設定したモックメソッドが期待通りに呼び出されたか検証
+			mockTenantRepo.AssertExpectations(t)
+		})
+	}
+}
+
+// --- ここから DeleteTenant のテストコード ---
+func Test_tenantService_DeleteTenant(t *testing.T) {
+	// --- テスト用の準備 ---
+	ctx := context.Background()
+	db := setupTestDB() // GetTenant は db を直接使うが、操作はモック経由
+	mockTenantRepo := new(mocks.TenantRepository)
+	tenantService := NewTenantService(db, mockTenantRepo)
+
+	testTenantID := uuid.New() // テスト用の固定ID
+
+	dummyTenant := &model.Tenant{ // FindByIDが返すダミーのテナント情報
+		TenantID:  testTenantID,
+		Name:      "Tenant to Delete",
+		CreatedAt: time.Now().Add(-time.Hour),
+		UpdatedAt: time.Now().Add(-time.Hour),
+	}
+
+	// --- テストケースの定義 ---
+	tests := []struct {
+		name      string
+		inputID   uuid.UUID
+		setupMock func(m *mocks.TenantRepository) // モック設定関数
+		wantErr   error
+	}{
+		{
+			name:    "正常系: テナント削除成功",
+			inputID: testTenantID,
+			setupMock: func(m *mocks.TenantRepository) {
+				// FindByID が ctx, db, testTenantID で呼ばれたら、
+				// expectedTenant と nil エラーを返すように設定
+				m.On("FindByID", ctx, db, testTenantID).
+					Return(dummyTenant, nil).Once()
+				m.On("Delete", ctx, db, testTenantID).
+					Return(nil).Once()
+			},
+			wantErr: nil, // エラーは期待しない
+		},
+		{
+			name:    "異常系: テナントIDが空",
+			inputID: uuid.Nil, // 空のUUIDを入力
+			setupMock: func(m *mocks.TenantRepository) {
+			},
+			wantErr: model.ErrInvalidInput, // 入力エラーを期待
+		},
+		{
+			name:    "異常系: テナントが見つからない",
+			inputID: testTenantID,
+			setupMock: func(m *mocks.TenantRepository) {
+				// FindByID が ctx, db, testTenantID で呼ばれたら、
+				// nil テナントと model.ErrNotFound を返すように設定
+				m.On("FindByID", ctx, db, testTenantID).
+					Return(nil, model.ErrNotFound).Once()
+			},
+			wantErr: model.ErrNotFound, // 見つからないエラーを期待
+		},
+		{
+			name:    "異常系: リポジトリで予期せぬエラーが発生",
+			inputID: testTenantID,
+			setupMock: func(m *mocks.TenantRepository) {
+				// FindByID が呼ばれたら、nil と simulatedError を返す
+				m.On("FindByID", ctx, db, testTenantID).
+					Return(nil, model.ErrInternalServer).Once()
+			},
+			// GetTenant はリポジトリのエラーをそのまま返す実装なので、
+			// モックで設定したエラーがそのまま返ることを期待
+			wantErr: model.ErrInternalServer,
+		},
+	}
+
+	// --- テストケースの実行 ---
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// --- 各テスト前のモックリセットと再設定 ---
+			mockTenantRepo.Mock = mock.Mock{} // モックの状態をリセット
+			if tt.setupMock != nil {
+				tt.setupMock(mockTenantRepo) // 現在のテストケース用のモックを設定
+			}
+
+			// --- テスト対象メソッドの実行 ---
+			err := tenantService.DeleteTenant(ctx, tt.inputID)
+
+			// 基本的な書式
+			// ほとんどの require および assert の関数は、以下のような引数の構成になっています。
+			// パッケージ名.関数名(t *testing.T, 引数1, [引数2, ...], [msgAndArgs ...interface{}])
+			// 　パッケージ名: require または assert のどちらかです。
+			// 　　require：必須。ない場合に、エラーとしてテストを中断する。
+			// 　　assert：任意。それがなくとも、エラーがあってもテストを続行する。
+			// 　関数名: 実行したいチェック内容を表す名前です（例: Error, NoError, Equal, Nil）。
+			// 　　Error: 「（引数で渡されたものが）エラーであること」を確認する。
+			// 　　NoError: 「（引数で渡されたものが）エラーでないこと（＝nilであること）」を確認する。
+			// 　　Equal: 「（引数で渡された2つのものが）等しい（Equal）こと」を確認する。
+			// 　　Nil: 「（引数で渡されたものが）nilであること」を確認する。
+			// 　　NotNil: 「（引数で渡されたものが）nilでないこと」を確認する。
+			// 　　True: 「（引数で渡されたものが）真（True）であること」を確認する。
+			// 　　False: 「（引数で渡されたものが）偽（False）であること」を確認する。
+			// 　　Len: 「（引数で渡されたコレクションの）長さ（Length）が、期待する値と等しいこと」を確認する。
+			// 　t *testing.T: これはGoの標準の testing パッケージから渡されるテストの状態を管理するオブジェクトです。テスト関数には必ず引数として渡ってくるので、それをそのまま渡します。テストフレームワークに結果（成功/失敗）を報告するために必要です。常に最初の引数になります。
+			// 　引数1, [引数2, ...]: チェックする対象の値や、期待する値などが入ります。関数によって必要な引数の数や種類が変わります。
+			// 　[msgAndArgs ...interface{}]: これはオプション（省略可能）の引数です。テストが失敗した場合に表示されるカスタムメッセージを指定できます。
+			// 　　最初の要素がメッセージ文字列（書式指定子 %v, %s, %d などを含めることができる）で、その後に書式指定子に対応する値を順番に指定します。
+			// 　　fmt.Printf と同じような感覚で使えます。
+			// 　　指定しない場合は、ライブラリがデフォルトのエラーメッセージを表示します。
+
+			// --- アサーション (結果の検証) ---
+			// require: チェックして、もし間違っていたら即座にテストを中断します。「これは絶対に満たされていないとおかしい！」という強いチェックに使います。
+			// assert: チェックして、もし間違っていてもテストは中断せず、最後まで続行します。ただし、間違っていたことは記録されます。複数の項目をチェックしたい場合に便利です。
+			if tt.wantErr != nil {
+				// require.Error(t, err, msgAndArgs...)
+				// 書式: require.Error(t *testing.T, err error, msgAndArgs ...interface{})
+				// 意味: err が nil でないこと（エラーが必須であること）を要求。エラーがない場合、第三引数を出力する。
+				// 引数:
+				// 　t: テストオブジェクト。
+				// 　err: チェック対象のエラー変数。
+				// 　msgAndArgs: 失敗時（err が nil だった場合）のカスタムメッセージ（省略可能）。
+				// 例: require.Error(t, err, "関数Xはエラーを返すべきなのにnilが返りました")
+				require.Error(t, err, "Expected an error but got nil")
+				// サービスがエラーをラップしていない場合、errors.Is が有効
+				// assert.ErrorIs(t, err, tt.wantErr, msgAndArgs...)
+				// 書式: assert.ErrorIs(t *testing.T, actual error, target error, msgAndArgs ...interface{})
+				// 意味: 実際に関するから返却されたエラー、想定されるエラーとを比較し、想定と異なる場合はエラーメッセージを出力
+				// 引数:
+				// 　t: テストオブジェクト。
+				// 　actual: 実際に発生したエラー。
+				// 　target: 期待されるエラーの種類（エラー変数）。
+				// 　msgAndArgs: 失敗時（エラーの種類が違う場合）のカスタムメッセージ（省略可能）。
+				// 例: assert.ErrorIs(t, err, sql.ErrNoRows, "取得エラーが発生するはずが、違う種類のエラー(%v)でした", err)
+				assert.ErrorIs(t, err, tt.wantErr, "Expected error '%v', but got '%v'", tt.wantErr, err)
+				// assert.EqualError(t, err, tt.wantErr.Error()) // エラーメッセージ文字列で比較する場合
+				// assert.Nil(t, tenant, msgAndArgs...)
+				// 書式: assert.Nil(t *testing.T, object interface{}, msgAndArgs ...interface{})
+				// 意味: object が nil であること（ポインタ、インターフェース、マップ、スライス、チャネルなどが nil であること）を表明します。
+				// 引数:
+				// 　t: テストオブジェクト。
+				// 　object: nil かどうかチェックしたい変数。
+				// 　msgAndArgs: 失敗時（object が nil でなかった場合）のカスタムメッセージ（省略可能）。
+				// 例: assert.Nil(t, result, "エラー発生時は結果がnilであるべきです")
+				// assert.Nil(t, tenant, "Tenant should be nil on error")
+				// tenantがnilであればOK。nilでなければエラーメッセージを出力
+			} else {
+				// エラーが期待されない場合
+				require.NoError(t, err, "Did not expect an error but got: %v", err)
+				// エラーが無いことを必須とする。エラーがあれば、テストがおかしいとして中断する。
+				// require.NotNil(t, tenant, "Expected a tenant but got nil")
+				//　tenantがnilデないことを確認。
+				// 取得したテナントが期待通りか比較
+				// assert.Equal(t, tt.wantTenant, tenant, "Returned tenant does not match expected tenant")
 			}
 
 			// --- モックの検証 ---

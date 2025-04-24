@@ -37,6 +37,24 @@ func (_m *TenantRepository) Create(ctx context.Context, db *gorm.DB, tenant *mod
 	return r0
 }
 
+// Delete provides a mock function with given fields: ctx, db, tenantID
+func (_m *TenantRepository) Delete(ctx context.Context, db *gorm.DB, tenantID uuid.UUID) error {
+	ret := _m.Called(ctx, db, tenantID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Delete")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *gorm.DB, uuid.UUID) error); ok {
+		r0 = rf(ctx, db, tenantID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // FindByID provides a mock function with given fields: ctx, db, tenantID
 func (_m *TenantRepository) FindByID(ctx context.Context, db *gorm.DB, tenantID uuid.UUID) (*model.Tenant, error) {
 	ret := _m.Called(ctx, db, tenantID)

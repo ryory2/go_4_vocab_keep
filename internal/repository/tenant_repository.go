@@ -1,4 +1,4 @@
-//go:generate mockery --name TenantRepository --dir . --output ./mocks --outpkg mocks --structname TenantRepository --filename tenant_repository_mock.go
+//go:generate mockery --name TenantRepository --srcpkg go_4_vocab_keep/internal/repository --output ../repository/mocks --outpkg mocks --case=underscore
 package repository
 
 import (
@@ -16,6 +16,7 @@ type TenantRepository interface {
 	Create(ctx context.Context, db *gorm.DB, tenant *model.Tenant) error
 	FindByID(ctx context.Context, db *gorm.DB, tenantID uuid.UUID) (*model.Tenant, error)
 	FindByName(ctx context.Context, db *gorm.DB, name string) (*model.Tenant, error) // テナント名で検索するメソッド
+	Delete(ctx context.Context, db *gorm.DB, tenantID uuid.UUID) error               // テナント名で検索するメソッド
 }
 
 type gormTenantRepository struct{}
@@ -88,4 +89,64 @@ func (r *gormTenantRepository) FindByName(ctx context.Context, db *gorm.DB, name
 	// 見つかったテナントのデータが tenant 変数に格納されている
 	// そのテナントへのポインタ (&tenant) と、エラーなし (nil) を返す
 	return &tenant, nil
+}
+
+// Delete は指定されたIDのテナントを論理削除します。
+// gorm.Model を埋め込んでいるため、GORM は deleted_at カラムを更新します。
+// 削除対象が見つからない場合、GORMのDeleteはエラーを返さないことが多いですが、
+// RowsAffected で確認することも可能です。ここではシンプルに結果を返します。
+func (r *gormTenantRepository) Delete(ctx context.Context, db *gorm.DB, tenantID uuid.UUID) error {
+	// 削除対象のモデルを指定して Delete を呼び出す
+	// GORMは指定されたモデルのテーブル名と主キーを使って WHERE 句を組み立てる
+	// この場合、 WHERE tenant_id = ? で検索し、見つかったレコードの deleted_at を更新する
+	// --- GORMによるレコード削除処理 ---
+
+	// db: GORMのデータベース接続オブジェクト (*gorm.DB)
+	// .WithContext(ctx): GORMの操作にGoのコンテキスト(context.Context)を関連付けます。
+	//                   これにより、タイムアウトやキャンセル信号をDB操作に伝搬できます。
+	//                   リクエスト処理などでは、そのリクエストのコンテキストを渡すのが一般的です。
+	// .Delete(引数1, 引数2): 指定された条件に一致するレコードをデータベースから削除するためのメソッドです。
+	//
+	//   引数1: &model.Tenant{}
+	//          - 削除操作の対象となる「テーブル」をGORMに教えるための情報です。
+	//          - GORMは `model.Tenant` 構造体の定義を見て、どのテーブル（通常は複数形で `tenants`）を
+	//            操作すればよいか判断します。
+	//          - `&model.Tenant{}` のように空の構造体のポインタを渡すのが一般的です。
+	//            この構造体自体にデータが入っている必要はありません。型情報が重要です。
+	//          - ★重要★: `model.Tenant` が `gorm.Model` を埋め込んでいる場合、
+	//            この `Delete` 操作はデフォルトで「論理削除」になります。
+	//            つまり、実際のレコードは削除されず、`deleted_at` カラムに現在時刻が設定されます。
+	//            物理的に削除したい場合は、`.Unscoped().Delete(...)` を使います。
+	//
+	//   引数2: tenantID (uuid.UUID型)
+	//          - 削除するレコードを特定するための「条件」です。
+	//          - GORMは、引数1で指定されたモデル (`model.Tenant`) の「主キー」フィールド
+	//            (通常は `ID` や、 `gorm:"primaryKey"` タグが付いたフィールド。
+	//            この場合は `TenantID` が主キーと仮定）に対して、
+	//            この `tenantID` の値が一致するレコードを削除対象とします。
+	//          - SQLで言うと `WHERE tenant_id = [tenantIDの値]` のような条件が生成されます。
+	//          - 複数の値を渡したり、構造体を渡して複数条件を指定することも可能です。
+	//
+	// 戻り値: result (*gorm.DB 型)
+	//         - `Delete` メソッドを実行した結果を格納するGORMのオブジェクトです。
+	//         - この `result` オブジェクトを通じて、エラー情報や影響を受けた行数などを確認できます。
+	result := db.WithContext(ctx).Delete(&model.Tenant{}, tenantID) // tenantID を条件として渡す
+
+	// エラーチェック
+	if result.Error != nil {
+		// 削除中に予期せぬDBエラーが発生した場合
+		log.Printf("Error deleting tenant %s in DB: %v", tenantID, result.Error)
+		return model.ErrInternalServer // 汎用エラーを返す
+	}
+
+	// オプション: 実際に削除された（影響を受けた）行数を確認する場合
+	// if result.RowsAffected == 0 {
+	// 	// 削除対象のレコードが見つからなかった場合
+	// 	// ここで ErrNotFound を返すかどうかは要件による
+	// 	// (冪等性を考慮すると、見つからなくてもエラーにしない場合もある)
+	// 	// return model.ErrNotFound
+	// }
+
+	// エラーが発生しなければ nil を返す
+	return nil
 }

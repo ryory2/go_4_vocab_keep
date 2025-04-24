@@ -1,4 +1,4 @@
-// internal/service/tenant_service.go
+//go:generate mockery --name TenantService --srcpkg go_4_vocab_keep/internal/service --output ./mocks --outpkg mocks --case=underscore
 package service
 
 import (
@@ -16,6 +16,7 @@ import (
 type TenantService interface {
 	CreateTenant(ctx context.Context, name string) (*model.Tenant, error)
 	GetTenant(ctx context.Context, tenantID uuid.UUID) (*model.Tenant, error) // GetTenantを追加
+	DeleteTenant(ctx context.Context, tenantID uuid.UUID) error               // GetTenantを追加
 }
 
 type tenantService struct {
@@ -45,6 +46,7 @@ func (s *tenantService) CreateTenant(ctx context.Context, name string) (*model.T
 		}
 		// エラーがなく (err == nil)、かつ existingTenant が見つかった場合 -> 重複
 		if err == nil && existingTenant != nil {
+			log.Printf("Error Conflict: %v", err)
 			return model.ErrConflict // 重複エラーを返す
 		}
 		// ここまで到達した場合、err は model.ErrNotFound または nil (かつ existingTenant == nil) なので重複なし
@@ -88,4 +90,23 @@ func (s *tenantService) GetTenant(ctx context.Context, tenantID uuid.UUID) (*mod
 		return nil, err
 	}
 	return tenant, nil
+}
+
+// GetTenant は指定されたIDのテナントを取得します (認証用などに利用)
+func (s *tenantService) DeleteTenant(ctx context.Context, tenantID uuid.UUID) error {
+	// --- 入力バリデーション ---
+	if tenantID == uuid.Nil {
+		return model.ErrInvalidInput
+	}
+	// _は戻り値の一部を受け取る必要がない場合に用いる
+	// 通常、宣言したものは利用しないとエラーになるが、この場合は問題ない
+	_, err := s.tenantRepo.FindByID(ctx, s.db, tenantID)
+	if err != nil {
+		return err
+	}
+	err = s.tenantRepo.Delete(ctx, s.db, tenantID)
+	if err != nil {
+		return err
+	}
+	return nil
 }
