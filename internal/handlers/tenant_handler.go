@@ -110,7 +110,7 @@ type CreateTenantRequest struct {
 	 *        - max=100: 最大100文字。
 	 *        (ルールは必要に応じて調整してください)
 	 */
-	Name string `json:"name" validate:"required,min=10,max=100"` // バリデーションタグを修正・追加
+	Name string `json:"name" validate:"required,min=1,max=100"` // バリデーションタグを修正・追加
 }
 
 // --- メソッド定義 ---

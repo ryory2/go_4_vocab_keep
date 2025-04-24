@@ -1,163 +1,246 @@
 // internal/handlers/tenant_handler_test.go
-package handlers_test // _test サフィックス
+package handlers_test // _test パッケージ
 
 import (
-	"bytes"
-	"encoding/json"
-	"errors" // errors パッケージ
-	"net/http"
-	"net/http/httptest"
-	"testing"
-	"time" // time パッケージ (レスポンス検証用)
+	"bytes" // バイト列操作のため
+	"strings"
 
+	// context パッケージ
+	"encoding/json"     // JSONエンコード/デコードのため
+	"errors"            // エラー作成のため
+	"net/http"          // HTTP関連の定数や型のため
+	"net/http/httptest" // HTTPテストユーティリティ
+	"testing"           // Goのテストフレームワーク
+	"time"              // 時間関連 (モックの戻り値用)
+
+	// chi ルーター (テスト対象ハンドラが使う想定)
+	// ハンドラが特定のフレームワークに依存しない場合は不要
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert" // testify/assert
-	"github.com/stretchr/testify/mock"   // testify/mock
 
-	"go_4_vocab_keep/internal/handlers"   // テスト対象ハンドラ
-	"go_4_vocab_keep/internal/model"      // モデル
-	// "go_4_vocab_keep/internal/service"    // サービスインターフェース
-	"go_4_vocab_keep/internal/service/mocks" // 生成したモック
-	// "go_4_vocab_keep/internal/webutil"    // webutil
+	"github.com/google/uuid"              // UUID生成のため
+	"github.com/stretchr/testify/assert"  // アサーションライブラリ
+	"github.com/stretchr/testify/mock"    // モックライブラリ
+	"github.com/stretchr/testify/require" // 必須アサーションライブラリ
+
+	// テスト対象のパッケージ
+	"go_4_vocab_keep/internal/handlers"
+	"go_4_vocab_keep/internal/model"
+
+	// 生成したサービス層のモック
+	"go_4_vocab_keep/internal/service/mocks" // モックのパス
+	// webutil はテスト内で直接使わないことが多いが、ハンドラが内部で使う
+	// webutil の挙動（例: MapErrorToStatusCode）をテスト結果から推測する
 )
 
 func TestTenantHandler_CreateTenant(t *testing.T) {
 	// --- モックとハンドラのセットアップ ---
-	// モック TenantService を作成
-	mockTenantService := mocks.NewMockTenantService(t) // testify v1.8+ の場合、t を渡す
+	mockTenantService := mocks.NewTenantService(t)                // モックインスタンス作成 (testify v1.8+)
+	tenantHandler := handlers.NewTenantHandler(mockTenantService) // モックを注入してハンドラ作成
 
-	// テスト対象のハンドラを作成し、モックサービスを注入
-	tenantHandler := handlers.NewTenantHandler(mockTenantService)
-
-	// テスト用のルーターをセットアップ
+	// --- テスト用のルーターセットアップ ---
+	// chi を使う例。ハンドラが標準の http.HandlerFunc であればルーターは不要な場合もある
 	router := chi.NewRouter()
-	router.Post("/api/v1/tenants", tenantHandler.CreateTenant) // ハンドラを登録
+	router.Post("/tenants", tenantHandler.CreateTenant) // ハンドラメソッドを登録
 
-	// --- テストケースの定義 ---
-	validTenantName := "Valid Tenant"
-	validRequestBody := handlers.CreateTenantRequest{Name: validTenantName}
-	expectedTenantUUID := uuid.New() // 成功時に返されると期待するUUID
-	expectedTenant := &model.Tenant{ // 成功時にServiceから返されると期待するTenantオブジェクト
-		TenantID:  expectedTenantUUID,
-		Name:      validTenantName,
-		CreatedAt: time.Now(), // 実際の値と比較するのは難しいため、ここでは型のみ確認することが多い
-		UpdatedAt: time.Now(),
-	}
+	// --- テストケースで使用する共通データ ---
+	validTenantName := "New Valid Tenant"
+	validRequest := handlers.CreateTenantRequest{Name: validTenantName}
+	// expectedTenantID := uuid.New()
+	// サービスが成功時に返すであろうテナント情報の期待値
+	// expectedTenant := &model.Tenant{
+	// 	TenantID:  expectedTenantID,
+	// 	Name:      validTenantName,
+	// 	CreatedAt: time.Now(), // 実際には比較が難しいのでアサーションで工夫する
+	// 	UpdatedAt: time.Now(),
+	// }
 
+	// --- テーブル駆動テストの定義 ---
 	tests := []struct {
-		name           string          // テストケース名
-		requestBody    interface{}     // リクエストボディ
-		setupMock      func()          // モックの設定を行う関数
-		expectedStatus int             // 期待されるHTTPステータスコード
-		expectedBody   *model.Tenant   // 期待されるレスポンスボディ (成功時)
-		expectedErrorMsg string        // 期待されるエラーメッセージ (エラー時)
+		name             string      // テストケース名
+		requestBody      interface{} // リクエストボディとして送るデータ
+		setupMock        func()      // 各テスト前のモック設定関数
+		expectedStatus   int         // 期待されるHTTPステータスコード
+		expectBody       bool        // レスポンスボディ(Tenant情報)を期待するかどうか
+		expectedRespName string      // 期待されるテナント名 (成功時)
+		expectedErrMsg   string      // 期待されるエラーメッセージの部分文字列 (エラー時)
 	}{
 		{
-			name:        "Success - Tenant created",
-			requestBody: validRequestBody,
+			name:        "正常系: 新規テナント作成成功（1文字）",
+			requestBody: handlers.CreateTenantRequest{Name: "a"}, // 1文字のリクエスト ("a")
 			setupMock: func() {
-				// mockTenantService の CreateTenant が呼ばれることを期待
-				// 引数として context.Context と validTenantName が渡される
-				// 戻り値として expectedTenant と nil エラーを返すように設定
-				mockTenantService.On("CreateTenant", mock.AnythingOfType("*context.valueCtx"), validTenantName).
-					Return(expectedTenant, nil).
-					Once() // このメソッドが1回だけ呼ばれることを期待
+				// --- このテストケース専用の期待する引数と戻り値 ---
+				testName := "a"
+				mockReturnTenant := &model.Tenant{ // サービスが返すであろうTenant
+					TenantID:  uuid.New(), // UUIDは任意でOK
+					Name:      testName,
+					CreatedAt: time.Now(),
+					UpdatedAt: time.Now(),
+				}
+				// サービス層のCreateTenantが特定の引数で呼ばれ、
+				// 成功時のテナント情報とnilエラーを返すように設定
+				mockTenantService.On("CreateTenant",
+					mock.AnythingOfType("*context.valueCtx"), // context は型だけチェック
+					testName,                                 // 名前は完全一致でチェック
+				).Return(mockReturnTenant, nil).Once() // 期待する戻り値と呼び出し回数
 			},
-			expectedStatus: http.StatusCreated,
-			expectedBody:   expectedTenant,
+			expectedStatus:   http.StatusCreated, // 201 Created
+			expectBody:       true,               // Tenant情報が返ることを期待
+			expectedRespName: "a",                // 返されるTenantの名前が正しいか
 		},
 		{
-			name:        "Fail - Invalid JSON body",
-			requestBody: `{"name": "invalid json"`, // 不正なJSON文字列
+			name:        "正常系: 新規テナント作成成功（100文字）",
+			requestBody: handlers.CreateTenantRequest{Name: strings.Repeat("b", 100)},
 			setupMock: func() {
-				// このケースでは Service のメソッドは呼ばれないはず
-				// On(...) の設定は不要
+				// --- このテストケース専用の期待する引数と戻り値 ---
+				testName := strings.Repeat("b", 100)
+				mockReturnTenant := &model.Tenant{ // サービスが返すであろうTenant
+					TenantID:  uuid.New(), // UUIDは任意でOK
+					Name:      testName,
+					CreatedAt: time.Now(),
+					UpdatedAt: time.Now(),
+				}
+				// サービス層のCreateTenantが特定の引数で呼ばれ、
+				// 成功時のテナント情報とnilエラーを返すように設定
+				mockTenantService.On("CreateTenant",
+					mock.AnythingOfType("*context.valueCtx"), // context は型だけチェック
+					testName,                                 // 名前は完全一致でチェック
+				).Return(mockReturnTenant, nil).Once() // 期待する戻り値と呼び出し回数
 			},
-			expectedStatus:   http.StatusBadRequest,
-			expectedErrorMsg: "Invalid request body", // webutil.DecodeJSONBody が返すエラーに基づく部分的なメッセージ
+			expectedStatus:   http.StatusCreated,       // 201 Created
+			expectBody:       true,                     // Tenant情報が返ることを期待
+			expectedRespName: strings.Repeat("b", 100), // 返されるTenantの名前が正しいか
 		},
 		{
-			name:        "Fail - Missing name in body",
-			requestBody: handlers.CreateTenantRequest{Name: ""}, // name が空
-			setupMock: func() {
-				// Service のメソッドは呼ばれないはず
-			},
-			expectedStatus:   http.StatusBadRequest,
-			expectedErrorMsg: "Tenant name is required", // ハンドラ内のバリデーションメッセージ
+			name:           "異常系: JSON構文エラー (閉じ括弧なし)",    // テスト名をより具体的に
+			requestBody:    `{"name": "incomplete json"`, // ★ 閉じ括弧 '}' がない不正なJSON ★
+			setupMock:      func() { /* サービス層は呼ばれないので設定不要 */ },
+			expectedStatus: http.StatusBadRequest,
+			expectBody:     false,
+			// エラーメッセージは webutil.DecodeJSONBody や json.Unmarshal が返すものに依存
+			// "unexpected end of JSON input" などが含まれる可能性がある
+			expectedErrMsg: "Invalid request body", // ハンドラが返すエラーメッセージの一部
 		},
 		{
-			name:        "Fail - Service returns Conflict error",
-			requestBody: validRequestBody,
-			setupMock: func() {
-				// CreateTenant が呼ばれ、model.ErrConflict エラーを返すように設定
-				mockTenantService.On("CreateTenant", mock.AnythingOfType("*context.valueCtx"), validTenantName).
-					Return(nil, model.ErrConflict). // ErrConflict を返す
-					Once()
-			},
-			expectedStatus:   http.StatusConflict, // MapErrorToStatusCode で 409 になるはず
-			expectedErrorMsg: model.ErrConflict.Error(), // Service から返されたエラーメッセージ
+			name:           "異常系: JSONデータ型エラー (nameが数値)",
+			requestBody:    `{"name": 123}`, // ★ name フィールドが文字列ではなく数値 ★
+			setupMock:      func() { /* サービス層は呼ばれないので設定不要 */ },
+			expectedStatus: http.StatusBadRequest,
+			expectBody:     false,
+			// エラーメッセージは json.UnmarshalTypeError などを含む可能性がある
+			expectedErrMsg: "Invalid request body",
 		},
 		{
-			name:        "Fail - Service returns Internal Server error",
-			requestBody: validRequestBody,
+			name: "異常系: バリデーションエラー（nameが空）",
+			// バリデータが Name="" をエラーとするため
+			requestBody:    handlers.CreateTenantRequest{Name: ""},
+			setupMock:      func() { /* サービス層は呼ばれないので設定不要 */ },
+			expectedStatus: http.StatusBadRequest, // 400 Bad Request
+			expectBody:     false,
+			expectedErrMsg: "Validation failed", // バリデーションエラーを示すメッセージ
+		},
+		{
+			name:           "異常系: バリデーションエラー（nameが101文字）",
+			requestBody:    handlers.CreateTenantRequest{Name: string(make([]byte, 101))}, // 101文字 (max=100違反)
+			setupMock:      func() { /* サービス層は呼ばれないので設定不要 */ },
+			expectedStatus: http.StatusBadRequest, // 400 Bad Request
+			expectBody:     false,
+			expectedErrMsg: "Validation failed",
+		},
+		{
+			name:        "異常系: サービスエラー（重複エラー）",
+			requestBody: validRequest,
 			setupMock: func() {
-				// CreateTenant が呼ばれ、その他のエラー (DBエラーなど) を返すように設定
-				mockTenantService.On("CreateTenant", mock.AnythingOfType("*context.valueCtx"), validTenantName).
-					Return(nil, errors.New("some internal error")). // 任意の内部エラー
-					Once()
+				// サービス層のCreateTenantが呼ばれ、重複エラー (ErrConflict) を返すように設定
+				mockTenantService.On("CreateTenant",
+					mock.AnythingOfType("*context.valueCtx"),
+					validTenantName,
+				).Return(nil, model.ErrConflict).Once() // ErrConflict を返す
 			},
-			expectedStatus:   http.StatusInternalServerError, // MapErrorToStatusCode で 500 になるはず
-			expectedErrorMsg: "some internal error",        // Service から返されたエラーメッセージ
+			expectedStatus: http.StatusConflict, // 409 Conflict (webutil.MapErrorToStatusCodeの結果)
+			expectBody:     false,
+			expectedErrMsg: model.ErrConflict.Error(), // エラーメッセージが一致するか
+		},
+		{
+			name:        "異常系: サービスエラー（予期せぬエラー）",
+			requestBody: validRequest,
+			setupMock: func() {
+				// サービス層のCreateTenantが呼ばれ、予期せぬ内部エラーを返すように設定
+				mockTenantService.On("CreateTenant",
+					mock.AnythingOfType("*context.valueCtx"),
+					validTenantName,
+				).Return(nil, errors.New("unexpected database error")).Once()
+			},
+			expectedStatus: http.StatusInternalServerError, // 500 Internal Server Error
+			expectBody:     false,
+			expectedErrMsg: "unexpected database error",
 		},
 	}
 
-	// --- テストケースの実行 ---
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	// --- テストケースの実行ループ ---
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			// 1. モックの設定を実行
-			tc.setupMock()
+			tt.setupMock()
 
 			// 2. リクエストボディの準備
 			var reqBodyBytes []byte
 			var err error
-			// 文字列の場合はそのまま使う、構造体の場合はJSONにマーシャル
-			if reqStr, ok := tc.requestBody.(string); ok {
-				reqBodyBytes = []byte(reqStr)
+			// interface{} の型に応じて処理を分岐
+			if bodyStr, ok := tt.requestBody.(string); ok {
+				reqBodyBytes = []byte(bodyStr) // 文字列ならそのままバイト列に
 			} else {
-				reqBodyBytes, err = json.Marshal(tc.requestBody)
-				assert.NoError(t, err, "Failed to marshal request body for test")
+				reqBodyBytes, err = json.Marshal(tt.requestBody)          // 構造体ならJSONに変換
+				require.NoError(t, err, "Failed to marshal request body") // 事前条件
 			}
 
 			// 3. HTTPリクエストを作成
-			req := httptest.NewRequest("POST", "/api/v1/tenants", bytes.NewBuffer(reqBodyBytes))
+			req := httptest.NewRequest(http.MethodPost, "/tenants", bytes.NewBuffer(reqBodyBytes))
 			req.Header.Set("Content-Type", "application/json")
 
 			// 4. レスポンスレコーダーを作成
 			rr := httptest.NewRecorder()
 
-			// 5. ハンドラを実行 (ルーター経由で)
+			// 5. ハンドラを実行 (ルーター経由)
 			router.ServeHTTP(rr, req)
 
 			// 6. レスポンスの検証
-			assert.Equal(t, tc.expectedStatus, rr.Code, "Unexpected status code")
+			assert.Equal(t, tt.expectedStatus, rr.Code, "Status code mismatch")
 
-			if tc.expectedBody != nil { // 成功ケースのボディ検証
-				var respBody model.Tenant
-				err := json.Unmarshal(rr.Body.Bytes(), &respBody)
-				assert.NoError(t, err, "Failed to unmarshal response body")
-				// UUIDと時間は動的なので、それ以外のフィールドを比較
-				assert.Equal(t, tc.expectedBody.Name, respBody.Name, "Tenant name mismatch")
-				assert.NotEqual(t, uuid.Nil, respBody.TenantID, "Tenant ID should not be nil")
-			} else if tc.expectedErrorMsg != "" { // エラーケースのボディ検証
-				var errResp model.APIError
-				err := json.Unmarshal(rr.Body.Bytes(), &errResp)
-				assert.NoError(t, err, "Failed to unmarshal error response body")
-				// エラーメッセージの一部が含まれているかなどで検証しても良い
-				assert.Contains(t, errResp.Message, tc.expectedErrorMsg, "Error message mismatch")
+			// 6a. 成功時のレスポンスボディ検証
+			if tt.expectBody {
+				// Content-Type ヘッダーのチェック (任意だが推奨)
+				assert.Equal(t, "application/json", rr.Header().Get("Content-Type"), "Content-Type mismatch")
+
+				var respTenant model.Tenant
+				err = json.Unmarshal(rr.Body.Bytes(), &respTenant)
+				require.NoError(t, err, "Failed to unmarshal success response body") // ボディがJSONとして正しいか
+
+				assert.Equal(t, tt.expectedRespName, respTenant.Name, "Tenant name mismatch")    // 名前が一致するか
+				assert.NotEqual(t, uuid.Nil, respTenant.TenantID, "Tenant ID should not be nil") // UUIDが生成されているか
+				// CreatedAt/UpdatedAt は厳密な比較が難しいため、ここでは省略 or IsZero() でないか確認する程度
+				assert.False(t, respTenant.CreatedAt.IsZero(), "CreatedAt should not be zero")
+				assert.False(t, respTenant.UpdatedAt.IsZero(), "UpdatedAt should not be zero")
+
+			} else { // 6b. エラー時のレスポンスボディ検証
+				// エラーレスポンスがJSON形式で、特定のメッセージを含むことを確認
+				// Content-Type ヘッダーのチェック (任意)
+				// assert.Equal(t, "application/json", rr.Header().Get("Content-Type"), "Content-Type mismatch for error")
+
+				// webutil.RespondWithError がどのようなJSONを返すかによって調整が必要
+				// ここでは {"message": "エラーメッセージ"} を想定
+				var errResp map[string]string // または model.APIError などの構造体を定義
+				err = json.Unmarshal(rr.Body.Bytes(), &errResp)
+				// 必須ではないが、エラーレスポンスがJSON形式であることの確認
+				if assert.NoError(t, err, "Failed to unmarshal error response body") {
+					// "message" フィールドが存在し、期待するエラーメッセージを含むか
+					assert.Contains(t, errResp["message"], tt.expectedErrMsg, "Error message mismatch")
+				} else {
+					// JSONデコードに失敗した場合、生のボディがメッセージを含むか確認 (代替)
+					assert.Contains(t, rr.Body.String(), tt.expectedErrMsg, "Raw error message mismatch")
+				}
 			}
 
-			// 7. モックの期待値が満たされたか検証
+			// 7. モックの呼び出しが期待通りだったか検証
 			mockTenantService.AssertExpectations(t)
 		})
 	}
