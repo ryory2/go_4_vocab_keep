@@ -15,7 +15,7 @@
 	// "forwardPorts": [ // コンテナのポートをローカルマシンに転送します。
 	// 	8080 // Go アプリケーションが listen するポート。 ローカルポート:コンテナポート の形式で指定可能 (例: `8081:8080`)。省略時は同じポート番号。
 	// ],
-	"postCreateCommand": "cd /app && air -c ./cmd/.air.toml", // コンテナ作成後に実行されるコマンド。 air を使用してホットリロードを実現します。 任意のコマンド、またはスクリプト。
+	// "postCreateCommand": "cd /app && air -c ./cmd/.air.toml", // コンテナ作成後に実行されるコマンド。 air を使用してホットリロードを実現します。 任意のコマンド、またはスクリプト。
 	"customizations": { // VS Code のカスタマイズ設定
 		"vscode": {
 			// コンテナ作成時に settings.json に設定されるデフォルト値。
@@ -38,7 +38,8 @@
 				// }
 			},
 			"extensions": [ // コンテナにインストールされる VS Code 拡張機能。
-				"golang.go" // Go 拡張機能。 拡張機能のIDを指定。
+				"golang.go", // Go 拡張機能。 拡張機能のIDを指定。
+				"sanaajani.taskrunnercode"
 			]
 		}
 	},

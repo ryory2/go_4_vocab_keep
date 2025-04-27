@@ -29,7 +29,5 @@ RUN go install -v github.com/vektra/mockery/v2@latest
 # ポート8080を公開
 EXPOSE 8080 2345
 
-WORKDIR /app/cmd
-
-# アプリケーションの起動
-CMD ["tail", "-f", "/dev/null"]
+# air を使用して開発サーバーを起動
+CMD ["air", "-c", "./cmd/.air.toml"]
