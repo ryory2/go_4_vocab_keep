@@ -413,15 +413,12 @@ func Test_tenantService_GetTenant(t *testing.T) {
 			name:    "異常系: リポジトリで予期せぬエラーが発生",
 			inputID: testTenantID,
 			setupMock: func(m *mocks.TenantRepository) {
-				// 予期せぬエラーをシミュレート
-				simulatedError := errors.New("database connection error")
-				// FindByID が呼ばれたら、nil と simulatedError を返す
 				m.On("FindByID", ctx, db, testTenantID).
-					Return(nil, simulatedError).Once()
+					Return(nil, model.ErrInternalServer).Once()
 			},
 			// GetTenant はリポジトリのエラーをそのまま返す実装なので、
 			// モックで設定したエラーがそのまま返ることを期待
-			wantErr:    errors.New("database connection error"),
+			wantErr:    model.ErrInternalServer,
 			wantTenant: nil,
 		},
 		{
