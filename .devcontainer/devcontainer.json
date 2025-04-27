@@ -19,9 +19,6 @@
 	// 	8080 // Go アプリケーションが listen するポート。 ローカルポート:コンテナポート の形式で指定可能 (例: `8081:8080`)。省略時は同じポート番号。
 	// ],
 	// "postCreateCommand": "cd /app && air -c ./cmd/.air.toml", // コンテナ作成後に実行されるコマンド。 air を使用してホットリロードを実現します。 任意のコマンド、またはスクリプト。
-	"postAttachCommand": {
-		"autoViewLogs": "code --command workbench.action.tasks.runTask --args '{\"task\": \"View App Container Logs\"}'"
-	},
 	"customizations": { // VS Code のカスタマイズ設定
 		"vscode": {
 			// コンテナ作成時に settings.json に設定されるデフォルト値。
