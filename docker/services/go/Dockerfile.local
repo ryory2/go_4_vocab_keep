@@ -1,10 +1,16 @@
 # ビルドステージ: Go の公式イメージを使用
-FROM golang:1.23-alpine
-# curl をインストール
-# RUN を一つにまとめるとレイヤー数を削減できます
-RUN apk update && apk add --no-cache curl
-RUN apk add --no-cache postgresql-client
-RUN apk add --no-cache tzdata
+FROM golang:1.23-bullseye
+
+# RUN を一つにまとめてレイヤー数を削減
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    postgresql-client \
+    tzdata \
+    build-essential \
+    bash \
+    # 不要になったキャッシュを削除
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # --- タイムゾーン設定 ---
 ENV TZ="Asia/Tokyo"
@@ -12,8 +18,8 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 # -----------------------
 
 # --- go-sqlite3 というライブラリは、動作するために Cgo（GoからC言語のコードを呼び出す機能）が必要 ---
-RUN apk add build-base gcc
-ENV CGO_ENABLED=1
+# RUN apk add build-base gcc
+# ENV CGO_ENABLED=1
 # -----------------------
 
 # モジュールファイルとソースコードのコピー

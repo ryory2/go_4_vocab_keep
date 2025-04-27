@@ -1,0 +1,61 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "echo",
+            "type": "shell",
+            "command": "echo Hello"
+        },
+        {
+            "label": "Run Go Generate (in cmd dir)", // タスクのわかりやすい名前
+            "type": "shell", // シェルでコマンドを実行するタイプ
+            // 実行するコマンドを指定。
+            // まず 'cd' でディレクトリを移動し、'&&' で続けて 'go generate' を実行。
+            // ${workspaceFolder} はVS Codeで開いているプロジェクトのルートフォルダを表す変数。
+            "command": "cd '${workspaceFolder}/cmd' && go generate -x ../...",
+            "group": { // タスクをグループ化 (任意)
+                "kind": "build", // ビルド関連のタスクとして扱う
+                "isDefault": false // これをデフォルトのビルドタスクにするか
+            },
+            "presentation": {
+                "echo": true, // 実行するコマンドをターミナルに表示する
+                "reveal": "always", // タスク実行時にターミナルパネルを表示する
+                "focus": false, // 実行後にターミナルにフォーカスを移さない
+                "panel": "shared", // 既存のターミナルを再利用する
+                "showReuseMessage": false, // ターミナル再利用時のメッセージを表示しない
+                "clear": false // 実行前にターミナルをクリアしない
+            },
+            "problemMatcher": [ // Goのエラー出力を拾う場合 (任意)
+                "$go"
+            ]
+        },
+        {
+            // タスクの一意な識別子であり、コマンドパレットで表示される名前
+            "label": "View App Container Logs",
+            // 実行するコマンドの種類 (シェルコマンド)
+            "type": "shell",
+            // 実際に実行するコマンド
+            // <コンテナ名またはID> の部分は、ログを見たいコンテナに合わせてください
+            "command": "docker logs -f docker-task_go-1",
+            // true にすると、タスクがバックグラウンドで実行され続け、ログを追従表示します
+            "isBackground": true,
+            // エラーや警告のパターンマッチングは不要なので空配列
+            "problemMatcher": [],
+            // タスク実行時のターミナルパネルの表示方法を設定
+            "presentation": {
+                // 常にパネルを表示する
+                "reveal": "always",
+                // このタスク専用のターミナルパネルを使用する ("shared" や "new" も選択可)
+                "panel": "dedicated",
+                // タスク実行時にターミナルにフォーカスを移さない (お好みで true に)
+                "focus": true,
+                // タスク再実行時に「ターミナルはタスクによって再利用されます」メッセージを表示しない
+                "showReuseMessage": false,
+                // タスク開始時にターミナルパネルの内容をクリアする (お好みで false に)
+                "clear": true
+            }
+        }
+    ]
+}
