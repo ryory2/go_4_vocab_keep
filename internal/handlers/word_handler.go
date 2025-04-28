@@ -2,7 +2,8 @@
 package handlers
 
 import (
-	"log"
+	"errors"   // errors パッケージをインポート
+	"log/slog" // slog パッケージをインポート
 	"net/http"
 
 	"go_4_vocab_keep/internal/middleware"
@@ -14,28 +15,49 @@ import (
 	"github.com/google/uuid"
 )
 
+// WordHandler 構造体に logger フィールドを追加
 type WordHandler struct {
 	service service.WordService
+	logger  *slog.Logger // slog.Logger フィールドを追加
 }
 
-func NewWordHandler(s service.WordService) *WordHandler {
-	return &WordHandler{service: s}
+// NewWordHandler コンストラクタで logger を受け取るように変更
+func NewWordHandler(s service.WordService, logger *slog.Logger) *WordHandler { // logger を引数に追加
+	// ロガーが nil の場合にデフォルトロガーを使用
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &WordHandler{
+		service: s,
+		logger:  logger, // logger を設定
+	}
 }
 
 func (h *WordHandler) CreateWord(w http.ResponseWriter, r *http.Request) {
+	// リクエスト固有の情報をロガーに追加することも検討 (例: リクエストID)
+	logger := h.logger
+
 	tenantID, err := middleware.GetTenantIDFromContext(r.Context())
 	if err != nil {
+		// slog で警告ログ (認証失敗)
+		logger.Warn("Unauthorized access attempt", slog.String("error", err.Error()))
 		webutil.RespondWithError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
+	// テナントIDを以降のログに追加
+	logger = logger.With(slog.String("tenant_id", tenantID.String()))
 
 	var req model.CreateWordRequest
 	if err := webutil.DecodeJSONBody(r, &req); err != nil {
+		// slog で警告ログ (クライアントリクエストエラー)
+		logger.Warn("Failed to decode CreateWord request body", slog.String("error", err.Error()))
 		webutil.RespondWithError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
 		return
 	}
 	// 簡単なバリデーション
 	if req.Term == "" || req.Definition == "" {
+		// slog で警告ログ (クライアント入力エラー)
+		logger.Warn("Validation failed: Term and definition are required", slog.Any("request", req))
 		webutil.RespondWithError(w, http.StatusBadRequest, "Term and definition are required")
 		return
 	}
@@ -43,57 +65,91 @@ func (h *WordHandler) CreateWord(w http.ResponseWriter, r *http.Request) {
 	word, err := h.service.CreateWord(r.Context(), tenantID, &req)
 	if err != nil {
 		statusCode := webutil.MapErrorToStatusCode(err)
-		log.Printf("Error creating word: %v (status: %d)", err, statusCode)
-		webutil.RespondWithError(w, statusCode, err.Error())
+		// slog でエラーログ (サービス層エラー)
+		logger.Error("Error creating word in service",
+			slog.Any("error", err),
+			slog.Int("status_code", statusCode),
+			slog.Any("request", req), // 注意: リクエスト内容に機密情報がないか確認
+		)
+		// クライアントにはサービス層が返したエラーメッセージをそのまま返すか、
+		// または汎用的なメッセージにするかを検討
+		webutil.RespondWithError(w, statusCode, "Failed to create word") // 汎用メッセージ例
 		return
 	}
 
+	// slog で成功ログ
+	logger.Info("Word created successfully", slog.String("word_id", word.WordID.String()))
 	webutil.RespondWithJSON(w, http.StatusCreated, word)
 }
 
 func (h *WordHandler) ListWords(w http.ResponseWriter, r *http.Request) {
+	logger := h.logger
 	tenantID, err := middleware.GetTenantIDFromContext(r.Context())
 	if err != nil {
+		logger.Warn("Unauthorized access attempt", slog.String("error", err.Error()))
 		webutil.RespondWithError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
+	logger = logger.With(slog.String("tenant_id", tenantID.String()))
 
 	words, err := h.service.ListWords(r.Context(), tenantID)
 	if err != nil {
 		statusCode := webutil.MapErrorToStatusCode(err) // 通常は500のはず
-		log.Printf("Error listing words: %v (status: %d)", err, statusCode)
-		webutil.RespondWithError(w, statusCode, "Failed to list words") // エラーメッセージを汎用化
+		// slog でエラーログ (サービス層エラー)
+		logger.Error("Error listing words in service",
+			slog.Any("error", err),
+			slog.Int("status_code", statusCode),
+		)
+		webutil.RespondWithError(w, statusCode, "Failed to list words") // 汎用メッセージ
 		return
 	}
 
 	if words == nil {
-		words = []*model.Word{}
+		words = []*model.Word{} // 空のスライスを返す
 	}
+	// slog で成功ログ (任意)
+	logger.Info("Words listed successfully", slog.Int("count", len(words)))
 	webutil.RespondWithJSON(w, http.StatusOK, words)
 }
 
 func (h *WordHandler) GetWord(w http.ResponseWriter, r *http.Request) {
+	logger := h.logger
 	tenantID, err := middleware.GetTenantIDFromContext(r.Context())
 	if err != nil {
+		logger.Warn("Unauthorized access attempt", slog.String("error", err.Error()))
 		webutil.RespondWithError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
+	logger = logger.With(slog.String("tenant_id", tenantID.String()))
 
 	wordIDStr := chi.URLParam(r, "word_id")
 	wordID, err := uuid.Parse(wordIDStr)
 	if err != nil {
+		// slog で警告ログ (クライアントリクエストエラー)
+		logger.Warn("Invalid word ID format in URL", slog.String("word_id_str", wordIDStr), slog.String("error", err.Error()))
 		webutil.RespondWithError(w, http.StatusBadRequest, "Invalid word ID format")
 		return
 	}
+	logger = logger.With(slog.String("word_id", wordID.String()))
 
 	word, err := h.service.GetWord(r.Context(), tenantID, wordID)
 	if err != nil {
 		statusCode := webutil.MapErrorToStatusCode(err)
-		log.Printf("Error getting word %s: %v (status: %d)", wordIDStr, err, statusCode)
-		webutil.RespondWithError(w, statusCode, err.Error())
+		// slog でエラーまたは情報ログ (サービス層の結果による)
+		if errors.Is(err, model.ErrNotFound) {
+			logger.Info("Word not found in service", slog.Int("status_code", statusCode))
+		} else {
+			logger.Error("Error getting word from service",
+				slog.Any("error", err),
+				slog.Int("status_code", statusCode),
+			)
+		}
+		webutil.RespondWithError(w, statusCode, "Failed to get word") // 汎用メッセージ
 		return
 	}
 
+	// slog で成功ログ (任意)
+	logger.Info("Word retrieved successfully")
 	webutil.RespondWithJSON(w, http.StatusOK, word)
 }
 
@@ -112,116 +168,105 @@ func (h *WordHandler) GetWord(w http.ResponseWriter, r *http.Request) {
 //
 //	なし (この関数は直接値を返さず、w を通じてレスポンスを送信します)
 func (h *WordHandler) UpdateWord(w http.ResponseWriter, r *http.Request) {
+	logger := h.logger // ハンドラ固有のロガーを取得
+
 	// --- 1. 認証情報の取得 ---
-	// リクエストのコンテキストからテナントID（どのユーザー/グループのリクエストか）を取得します。
-	// middleware.GetTenantIDFromContext は、ミドルウェアで事前に設定されたテナントIDをコンテキストから取り出す関数です。
-	// 戻り値:
-	//   tenantID (uuid.UUID): 取得したテナントID
-	//   err (error):          取得中にエラーが発生した場合にエラー情報、成功時は nil
 	tenantID, err := middleware.GetTenantIDFromContext(r.Context())
 	if err != nil {
-		// テナントIDが取得できない場合（例: 認証されていない）、401 Unauthorized エラーを返す。
-		// webutil.RespondWithError は、指定されたステータスコードとエラーメッセージでJSON形式のエラーレスポンスを作成し、w に書き込みます。
+		logger.Warn("Unauthorized access attempt for UpdateWord", slog.String("error", err.Error()))
 		webutil.RespondWithError(w, http.StatusUnauthorized, "Unauthorized: "+err.Error())
-		return // エラーが発生したので処理を中断
+		return
 	}
+	logger = logger.With(slog.String("tenant_id", tenantID.String())) // テナントIDをログコンテキストに追加
 
 	// --- 2. 更新対象の単語IDの取得 ---
-	// URLパスパラメータから "word_id" の値を取得します。
-	// 例: /words/123e4567-e89b-12d3-a456-426614174000 の場合、"123e..." の部分を取得。
-	// chi.URLParam は chi ルーターの機能で、URLパスから指定した名前のパラメータを文字列として取得します。
-	// 戻り値:
-	//   wordIDStr (string): URLから取得した word_id の文字列
 	wordIDStr := chi.URLParam(r, "word_id")
-	// 取得した文字列のIDを UUID 型に変換（パース）します。
-	// uuid.Parse は、文字列が正しいUUID形式か検証し、UUID型に変換します。
-	// 戻り値:
-	//   wordID (uuid.UUID): パースされたUUID
-	//   err (error):       文字列が有効なUUID形式でない場合にエラー情報、成功時は nil
 	wordID, err := uuid.Parse(wordIDStr)
 	if err != nil {
-		// IDの形式が無効な場合、400 Bad Request エラーを返す。
+		logger.Warn("Invalid word ID format in URL for UpdateWord", slog.String("word_id_str", wordIDStr), slog.String("error", err.Error()))
 		webutil.RespondWithError(w, http.StatusBadRequest, "Invalid word ID format")
-		return // エラーが発生したので処理を中断
+		return
 	}
+	logger = logger.With(slog.String("word_id", wordID.String())) // 単語IDをログコンテキストに追加
 
 	// --- 3. リクエストボディの解析とバリデーション ---
-	// リクエストボディ（クライアントから送られてきた更新内容）をJSON形式としてデコードし、
-	// model.UpdateWordRequest 構造体にマッピングします。
-	var req model.UpdateWordRequest // 更新リクエストの内容を格納するための構造体変数
-	// webutil.DecodeJSONBody は、リクエスト(r)のボディを読み取り、JSONとして解釈し、指定された構造体ポインタ(&req)に値を格納するヘルパー関数です。
-	// 戻り値:
-	//   err (error): デコード中にエラー（形式が違う、読み取れない等）が発生した場合にエラー情報、成功時は nil
+	var req model.UpdateWordRequest
 	if err := webutil.DecodeJSONBody(r, &req); err != nil {
-		// JSONのデコードに失敗した場合、400 Bad Request エラーを返す。
+		logger.Warn("Failed to decode UpdateWord request body", slog.String("error", err.Error()))
 		webutil.RespondWithError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
-		return // エラーが発生したので処理を中断
+		return
 	}
 
-	// 更新内容の基本的なバリデーション（検証）
-	// 更新するフィールド (Term: 単語の綴り, Definition: 定義) がどちらも指定されていない場合はエラーとする。
+	// 更新内容の基本的なバリデーション（サービス層でも行うが、ハンドラ層でも早期リターン）
 	// if req.Term == nil && req.Definition == nil {
-	// 	// 更新する内容がない場合、400 Bad Request エラーを返す。
-	// 	webutil.RespondWithError(w, http.StatusBadRequest, "No fields provided for update")
-	// 	return // エラーが発生したので処理を中断
+	//     logger.Warn("UpdateWord called with no fields provided for update", slog.Any("request", req))
+	// 	   webutil.RespondWithError(w, http.StatusBadRequest, "No fields provided for update")
+	// 	   return
 	// }
-	// TODO: ここでさらに詳細な入力値バリデーションを行うことが推奨されます。
-	// 例: req.Term が空文字列でないか、文字数制限は守られているかなど。
+	// TODO: 詳細なバリデーション
 
 	// --- 4. サービス層の呼び出し（実際の更新処理） ---
-	// 準備が整ったので、サービス層の UpdateWord メソッドを呼び出して単語の更新を依頼します。
-	// h.service.UpdateWord は、ビジネスロジック（データベース操作など）を担当するメソッドです。
-	// 引数:
-	//   r.Context(): リクエストのコンテキスト（タイムアウトやキャンセル情報を伝搬させるため）
-	//   tenantID:    どのテナントのデータか識別するため
-	//   wordID:      どの単語を更新するか識別するため
-	//   &req:        どのように更新するか（更新内容）
-	// 戻り値:
-	//   word (*model.Word): 更新後の単語データへのポインタ
-	//   err (error):        更新処理中にエラーが発生した場合にエラー情報、成功時は nil
 	word, err := h.service.UpdateWord(r.Context(), tenantID, wordID, &req)
 	if err != nil {
 		// --- 5. エラーハンドリング (サービス層でエラーが発生した場合) ---
-		// サービス層での処理中に何らかのエラーが発生した場合の処理。
-		// webutil.MapErrorToStatusCode は、発生したエラーの種類に応じて適切なHTTPステータスコードを決定するヘルパー関数です。
-		// (例: データが見つからない場合は 404 Not Found, データベースエラーなら 500 Internal Server Error など)
 		statusCode := webutil.MapErrorToStatusCode(err)
-		// エラー内容をサーバーのログに出力します。エラー追跡に役立ちます。
-		// log.Printf は、フォーマット指定でログメッセージを出力する標準ライブラリの関数です。
-		log.Printf("Error updating word %s for tenant %s: %v (status: %d)", wordIDStr, tenantID, err, statusCode)
-		// クライアントにエラーレスポンスを返します。エラーメッセージにはサービス層から返されたエラー内容を含めます。
-		webutil.RespondWithError(w, statusCode, "Failed to update word: "+err.Error())
-		return // エラーが発生したので処理を中断
+		// slog でエラーまたは情報ログ (エラー種別による)
+		// ★ 修正点: logAttrs スライスを使わず、直接 slog.Attr を渡す
+		if errors.Is(err, model.ErrNotFound) || errors.Is(err, model.ErrConflict) {
+			logger.Info("UpdateWord service returned expected error",
+				slog.Any("error", err),
+				slog.Int("status_code", statusCode),
+				slog.Any("request", req), // 注意: 機密情報がないか確認
+			)
+		} else {
+			logger.Error("Error updating word in service",
+				slog.Any("error", err),
+				slog.Int("status_code", statusCode),
+				slog.Any("request", req), // 注意: 機密情報がないか確認
+			)
+		}
+		webutil.RespondWithError(w, statusCode, "Failed to update word") // 汎用メッセージ
+		return
 	}
 
 	// --- 6. 成功レスポンスの送信 ---
-	// 更新処理が成功した場合。
-	// webutil.RespondWithJSON は、指定されたステータスコード(200 OK)とデータをJSON形式でレスポンスとして作成し、w に書き込みます。
-	// ここでは、更新後の単語データ (word) をクライアントに返します。
+	logger.Info("Word updated successfully") // 更新後の単語IDは word.WordID で取得可能
 	webutil.RespondWithJSON(w, http.StatusOK, word)
 }
 
 func (h *WordHandler) DeleteWord(w http.ResponseWriter, r *http.Request) {
+	logger := h.logger
 	tenantID, err := middleware.GetTenantIDFromContext(r.Context())
 	if err != nil {
+		logger.Warn("Unauthorized access attempt for DeleteWord", slog.String("error", err.Error()))
 		webutil.RespondWithError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
+	logger = logger.With(slog.String("tenant_id", tenantID.String()))
 
 	wordIDStr := chi.URLParam(r, "word_id")
 	wordID, err := uuid.Parse(wordIDStr)
 	if err != nil {
+		logger.Warn("Invalid word ID format in URL for DeleteWord", slog.String("word_id_str", wordIDStr), slog.String("error", err.Error()))
 		webutil.RespondWithError(w, http.StatusBadRequest, "Invalid word ID format")
 		return
 	}
+	logger = logger.With(slog.String("word_id", wordID.String()))
 
 	err = h.service.DeleteWord(r.Context(), tenantID, wordID)
 	if err != nil {
-		statusCode := webutil.MapErrorToStatusCode(err)
-		log.Printf("Error deleting word %s: %v (status: %d)", wordIDStr, err, statusCode)
-		webutil.RespondWithError(w, statusCode, err.Error())
+		// DeleteWord サービスは ErrNotFound の場合 nil を返す想定 (冪等性のため)
+		// それ以外のエラーの場合
+		statusCode := webutil.MapErrorToStatusCode(err) // 通常は 500
+		logger.Error("Error deleting word in service",
+			slog.Any("error", err),
+			slog.Int("status_code", statusCode),
+		)
+		webutil.RespondWithError(w, statusCode, "Failed to delete word") // 汎用メッセージ
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	// slog で成功ログ
+	logger.Info("Word deleted successfully (or was already deleted)")
+	w.WriteHeader(http.StatusNoContent) // 204 No Content
 }

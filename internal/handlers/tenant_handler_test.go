@@ -3,6 +3,8 @@ package handlers_test // _test パッケージ
 
 import (
 	"bytes" // バイト列操作のため
+	"io"
+	"log/slog"
 	"strings"
 
 	// context パッケージ
@@ -33,9 +35,10 @@ import (
 )
 
 func TestTenantHandler_CreateTenant(t *testing.T) {
+	testLogger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	// --- モックとハンドラのセットアップ ---
-	mockTenantService := mocks.NewTenantService(t)                // モックインスタンス作成 (testify v1.8+)
-	tenantHandler := handlers.NewTenantHandler(mockTenantService) // モックを注入してハンドラ作成
+	mockTenantService := mocks.NewTenantService(t)                            // モックインスタンス作成 (testify v1.8+)
+	tenantHandler := handlers.NewTenantHandler(mockTenantService, testLogger) // モックを注入してハンドラ作成
 
 	// --- テスト用のルーターセットアップ ---
 	// chi を使う例。ハンドラが標準の http.HandlerFunc であればルーターは不要な場合もある

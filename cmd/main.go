@@ -3,66 +3,121 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/lmittmann/tint"
+
+	"go_4_vocab_keep/internal/config"
+	"go_4_vocab_keep/internal/handlers"
+	"go_4_vocab_keep/internal/middleware"
+	"go_4_vocab_keep/internal/repository"
+	"go_4_vocab_keep/internal/service"
+
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
-	"go_4_vocab_keep/internal/config"     // プロジェクト名修正
-	"go_4_vocab_keep/internal/handlers"   // プロジェクト名修正
-	"go_4_vocab_keep/internal/middleware" // プロジェクト名修正
-	"go_4_vocab_keep/internal/repository" // プロジェクト名修正
-	"go_4_vocab_keep/internal/service"    // プロジェクト名修正
-
-	"gorm.io/gorm" // GORMはDB接続用に必要
+	"gorm.io/gorm" // GORMはDB接続用
 )
 
 func main() {
-	log.Println("Starting application...")
+	//　設定ファイル読み込み用の一時的なロガー設定
+	tempLogger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	slog.SetDefault(tempLogger)
+	log.Println("Log Config Loading...")
 
-	// 1. Load Configuration
+	// Configを読み込み
 	if err := config.LoadConfig("configs"); err != nil { // "configs" ディレクトリを指定
-		log.Fatalf("Error loading configuration: %v", err)
+		slog.Error("Error loading configuration", slog.Any("error", err))
+		os.Exit(1) // Fatalf の代わりに Error + os.Exit
 	}
 
+	// === 設定に基づいて slog ロガーを初期化 ===
+	logLevel := new(slog.LevelVar) // 動的に変更可能なレベル変数
+	// config.yamlで設定したログレベルを設定
+	switch strings.ToLower(config.Cfg.Log.Level) {
+	case "debug":
+		logLevel.Set(slog.LevelDebug)
+	case "info":
+		logLevel.Set(slog.LevelInfo)
+	case "warn", "warning":
+		logLevel.Set(slog.LevelWarn)
+	case "error":
+		logLevel.Set(slog.LevelError)
+	default:
+		logLevel.Set(slog.LevelInfo) // 不明な場合はInfo
+		slog.Warn("Unknown log level specified in config, defaulting to INFO", slog.String("level", config.Cfg.Log.Level))
+	}
+	// config.yamlで設定したログフォーマットを設定
+	var handler slog.Handler
+	appEnv := os.Getenv("APP_ENV")
+	if strings.ToLower(appEnv) == "dev" {
+		// --- tint Handler を使用 ---
+		tintOpts := &tint.Options{
+			Level:      logLevel,
+			TimeFormat: time.RFC3339,
+			AddSource:  true,
+		}
+		handler = tint.NewHandler(os.Stderr, tintOpts)
+		tempLogger.Info("Using TINT log handler", slog.String("APP_ENV", appEnv))
+	} else {
+		jsonOpts := &slog.HandlerOptions{
+			Level:     logLevel,
+			AddSource: true,
+		}
+		handler = slog.NewJSONHandler(os.Stderr, jsonOpts)
+		tempLogger.Info("Using JSON log handler", slog.String("APP_ENV", appEnv))
+	}
+	logger := slog.New(handler)
+	log.Println("Log Config Loaded...")
+
+	// Configファイルの読み込み完了後、アプリケーション全体のデフォルトロガーを設定
+	slog.SetDefault(logger)
+
+	slog.Info("Application starting...")
+
 	// 2. Initialize Database Connection (GORM)
-	db, err := repository.NewDB(config.Cfg.Database.URL)
+	db, err := repository.NewDB(config.Cfg.Database.URL, logger)
 	if err != nil {
-		log.Fatalf("Error initializing database: %v", err)
+		slog.Error("Error initializing database", slog.Any("error", err))
+		os.Exit(1)
 	}
 	sqlDB, err := db.DB()
 	if err != nil {
-		log.Fatalf("Error getting underlying sql.DB from GORM: %v", err)
+		slog.Error("Error getting underlying sql.DB from GORM", slog.Any("error", err))
+		os.Exit(1)
 	}
 	defer func() {
 		if err := sqlDB.Close(); err != nil {
-			log.Printf("Error closing database connection: %v", err)
+			slog.Error("Error closing database connection", slog.Any("error", err))
 		} else {
-			log.Println("Database connection closed.")
+			slog.Info("Database connection closed.")
 		}
 	}()
 
 	// 3. Dependency Injection
-	tenantRepo := repository.NewGormTenantRepository()
-	wordRepo := repository.NewGormWordRepository()
-	progressRepo := repository.NewGormProgressRepository()
+	tenantRepo := repository.NewGormTenantRepository(logger)
+	wordRepo := repository.NewGormWordRepository(logger)
+	progressRepo := repository.NewGormProgressRepository(logger)
 
-	tenantService := service.NewTenantService(db, tenantRepo)
-	wordService := service.NewWordService(db, wordRepo, progressRepo)
+	tenantService := service.NewTenantService(db, tenantRepo, logger)
+	wordService := service.NewWordService(db, wordRepo, progressRepo, logger)
 	// ReviewServiceのNew関数にdbを渡すように修正 (もし必要ならReviewServiceの実装も確認)
-	reviewService := service.NewReviewService(db, progressRepo, config.Cfg)
+	reviewService := service.NewReviewService(db, progressRepo, config.Cfg, logger)
 
 	// Authenticator を作成
 	tenantAuthenticator := middleware.NewServiceTenantAuthenticator(tenantService)
 
-	tenantHandler := handlers.NewTenantHandler(tenantService)
-	wordHandler := handlers.NewWordHandler(wordService)
-	reviewHandler := handlers.NewReviewHandler(reviewService)
+	tenantHandler := handlers.NewTenantHandler(tenantService, logger)
+	wordHandler := handlers.NewWordHandler(wordService, logger)
+	reviewHandler := handlers.NewReviewHandler(reviewService, logger)
 
 	// 4. Setup Router
 	r := chi.NewRouter()
@@ -70,7 +125,7 @@ func main() {
 	// Middleware
 	r.Use(chimiddleware.RequestID)
 	r.Use(chimiddleware.RealIP)
-	r.Use(chimiddleware.Logger) // Use chi's structured logger
+	r.Use(middleware.NewStructuredLogger(logger)) // slogを使うカスタムロガーミドルウェア
 	r.Use(chimiddleware.Recoverer)
 	r.Use(chimiddleware.Timeout(60 * time.Second))
 
@@ -85,11 +140,11 @@ func main() {
 			// 強化したテナント認証ミドルウェアを適用
 			if config.Cfg.Auth.Enabled {
 				// 本番モード: DB検証を行う認証ミドルウェアを適用
-				log.Println("Applying production authentication middleware")
+				slog.Info("Applying production authentication middleware")
 				r.Use(middleware.TenantAuthMiddleware(tenantAuthenticator))
 			} else {
 				// 開発モード: DB検証を行わない簡易ミドルウェアを適用
-				log.Println("Applying development (no validation) authentication middleware")
+				slog.Info("Applying development (no validation) authentication middleware")
 				r.Use(middleware.DevTenantContextMiddleware)
 			}
 
@@ -114,15 +169,16 @@ func main() {
 	// Health Check
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		// DB接続チェック
+		ctx := r.Context()
 		sqlDB, err := db.DB()
 		if err != nil {
-			log.Printf("Health check failed: could not get DB object: %v", err)
+			slog.ErrorContext(ctx, "Health check failed: could not get DB object", slog.Any("error", err))
 			http.Error(w, "Health check failed", http.StatusInternalServerError)
 			return
 		}
 		err = sqlDB.PingContext(r.Context())
 		if err != nil {
-			log.Printf("Health check failed: could not ping DB: %v", err)
+			slog.ErrorContext(ctx, "Health check failed: could not ping DB", slog.Any("error", err))
 			http.Error(w, "Health check failed", http.StatusInternalServerError)
 			return
 		}
@@ -140,9 +196,10 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("Server listening on port %s", config.Cfg.Server.Port)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Could not listen on %s: %v\n", config.Cfg.Server.Port, err)
+		slog.Info("Server listening", slog.String("port", config.Cfg.Server.Port))
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("Could not listen on port", slog.String("port", config.Cfg.Server.Port), slog.Any("error", err))
+			os.Exit(1) // Listen失敗は致命的
 		}
 	}()
 
@@ -150,12 +207,12 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Println("Shutting down server...")
+	slog.Info("Shutting down server...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := server.Shutdown(ctx); err != nil {
-		log.Fatalf("Server forced to shutdown: %v", err)
+		slog.Error("Server forced to shutdown", slog.Any("error", err))
 	}
 
 	log.Println("Server exiting")

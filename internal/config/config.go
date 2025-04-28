@@ -3,23 +3,45 @@ package config
 
 import (
 	"log"
+	"strings"
+	// 文字列操作用にインポート
 	// os をインポート (環境変数チェック用に追加)
 	"github.com/spf13/viper"
 )
 
+// 各設定の構造体を定義
+// ログ設定
+type LogConfig struct {
+	Level  string `mapstructure:"level"`  // ログレベル (e.g., "debug", "info", "warn", "error")
+	Format string `mapstructure:"format"` // ログフォーマット (e.g., "json", "text")
+}
+
+// DB設定
+type DatabaseConfig struct {
+	URL string `mapstructure:"url"`
+}
+
+// サーバー設定
+type ServerConfig struct {
+	Port string `mapstructure:"port"`
+}
+
+// アプリケーション設定
+type AppConfig struct {
+	ReviewLimit int `mapstructure:"review_limit"`
+}
+
+// 認証設定
+type AuthConfig struct {
+	Enabled bool `mapstructure:"enabled"`
+}
+
 type Config struct {
-	Database struct {
-		URL string `mapstructure:"url"`
-	} `mapstructure:"database"`
-	Server struct {
-		Port string `mapstructure:"port"`
-	} `mapstructure:"server"`
-	App struct {
-		ReviewLimit int `mapstructure:"review_limit"`
-	} `mapstructure:"app"`
-	Auth struct { // <--- Auth フィールドを追加
-		Enabled bool `mapstructure:"enabled"`
-	} `mapstructure:"auth"`
+	Database DatabaseConfig `mapstructure:"database"`
+	Server   ServerConfig   `mapstructure:"server"`
+	App      AppConfig      `mapstructure:"app"`
+	Auth     AuthConfig     `mapstructure:"auth"`
+	Log      LogConfig      `mapstructure:"log"` // Log設定用のフィールドを追加
 }
 
 var Cfg Config
@@ -31,10 +53,18 @@ func LoadConfig(path string) error {
 	viper.AddConfigPath(".")
 
 	// 環境変数名を指定して読み込むことも可能 (例: AUTH_ENABLED)
-	viper.SetEnvPrefix("APP")                     // 例: APP_AUTH_ENABLED のように接頭辞をつける場合
-	viper.AutomaticEnv()                          // 環境変数を自動で読み込む
-	viper.BindEnv("auth.enabled", "AUTH_ENABLED") // AUTH_ENABLED 環境変数を auth.enabled に紐付け
+	viper.SetEnvPrefix("APP") // 例: APP_AUTH_ENABLED のように接頭辞をつける場合
+	viper.AutomaticEnv()      // 環境変数を自動で読み込む
 
+	// 環境変数を Config 構造体のフィールドに紐付け、config.yamlから環境変数を設定
+	viper.BindEnv("auth.enabled", "AUTH_ENABLED")
+	viper.BindEnv("log.level", "LOG_LEVEL")           // LOG_LEVEL 環境変数を紐付け
+	viper.BindEnv("log.format", "LOG_FORMAT")         // LOG_FORMAT 環境変数を紐付け
+	viper.BindEnv("database.url", "DATABASE_URL")     // DATABASE_URL 環境変数を紐付け
+	viper.BindEnv("server.port", "PORT")              // PORT 環境変数を紐付け (一般的)
+	viper.BindEnv("app.review_limit", "REVIEW_LIMIT") // REVIEW_LIMIT 環境変数を紐付け
+
+	// 設定ファイル（config.yaml）の読み込み
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 			log.Println("Warning: Config file not found. Using default settings or environment variables if available.")
@@ -51,35 +81,51 @@ func LoadConfig(path string) error {
 	}
 
 	// --- デフォルト値の設定 ---
-	if Cfg.Server.Port == "" {
+	// viper.IsSet で設定ファイルや環境変数で明示的に値が設定されたかを確認できる
+
+	if !viper.IsSet("server.port") && Cfg.Server.Port == "" { // 環境変数 PORT も考慮
 		log.Println("Server port not set, using default ':8080'")
 		Cfg.Server.Port = ":8080"
 	}
-	if Cfg.App.ReviewLimit <= 0 {
+	// ReviewLimit のデフォルト値
+	if Cfg.App.ReviewLimit <= 0 { // viper.IsSetを使っても良い
 		log.Println("App review limit not set or invalid, using default '20'")
 		Cfg.App.ReviewLimit = 20
 	}
+	// Database URL は必須かもしれないので、デフォルト値を設定するか、エラーにするか検討
 	if Cfg.Database.URL == "" {
 		log.Println("Warning: Database URL is not set in config.")
 	}
-
-	// Auth.Enabled のデフォルト値を設定 (未設定なら true = 有効 にする)
-	// viper.IsSet() で設定ファイルや環境変数で明示的に設定されたか確認できる
+	// Auth.Enabled のデフォルト値
 	if !viper.IsSet("auth.enabled") {
-		// 環境変数 NODE_ENV や APP_ENV などで開発環境かどうかを判定しても良い
-		// if os.Getenv("APP_ENV") == "development" {
-		//     log.Println("Auth enabled flag not set in development, defaulting to false (disabled)")
-		//     Cfg.Auth.Enabled = false
-		// } else {
 		log.Println("Auth enabled flag not set, defaulting to true (enabled)")
 		Cfg.Auth.Enabled = true
-		// }
+	}
+	// Log Level のデフォルト値
+	if !viper.IsSet("log.level") {
+		log.Println("Log level not set, defaulting to 'info'")
+		Cfg.Log.Level = "info"
+	} else {
+		// 読み込んだ値を小文字に正規化（比較しやすくするため）
+		Cfg.Log.Level = strings.ToLower(Cfg.Log.Level)
+	}
+	// Log Format のデフォルト値
+	if !viper.IsSet("log.format") {
+		log.Println("Log format not set, defaulting to 'json'")
+		Cfg.Log.Format = "json"
+	} else {
+		// 読み込んだ値を小文字に正規化
+		Cfg.Log.Format = strings.ToLower(Cfg.Log.Format)
 	}
 
+	// 読み込み完了ログ (LoadConfig内では標準logのまま)
 	log.Println("Config loaded successfully")
-	log.Printf("Server Port: %s", Cfg.Server.Port)
-	log.Printf("Review Limit: %d", Cfg.App.ReviewLimit)
-	log.Printf("Auth Enabled: %t", Cfg.Auth.Enabled) // 認証状態をログ出力
+	log.Printf("  Server Port: %s", Cfg.Server.Port)
+	log.Printf("  Review Limit: %d", Cfg.App.ReviewLimit)
+	log.Printf("  Database URL Set: %t", Cfg.Database.URL != "") // URL自体は出力しない方が安全
+	log.Printf("  Auth Enabled: %t", Cfg.Auth.Enabled)
+	log.Printf("  Log Level: %s", Cfg.Log.Level)
+	log.Printf("  Log Format: %s", Cfg.Log.Format)
 
 	return nil
 }

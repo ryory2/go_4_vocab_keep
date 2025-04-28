@@ -1,8 +1,10 @@
+//go:generate mockery --name ProgressRepository --srcpkg go_4_vocab_keep/internal/repository --output ../repository/mocks --outpkg mocks --case=underscore
 package repository
 
 import (
 	"context"
 	"errors"
+	"log/slog" // slog パッケージをインポート
 	"time"
 
 	"go_4_vocab_keep/internal/model"
@@ -11,56 +13,89 @@ import (
 	"gorm.io/gorm"
 )
 
+// ProgressRepository インターフェース (変更なし)
 type ProgressRepository interface {
-	Create(ctx context.Context, tx *gorm.DB, progress *model.LearningProgress) error // トランザクション対応
+	Create(ctx context.Context, tx *gorm.DB, progress *model.LearningProgress) error
 	FindByWordID(ctx context.Context, db *gorm.DB, tenantID, wordID uuid.UUID) (*model.LearningProgress, error)
-	Update(ctx context.Context, tx *gorm.DB, progress *model.LearningProgress) error                                                            // トランザクション対応
-	FindReviewableByTenant(ctx context.Context, db *gorm.DB, tenantID uuid.UUID, today time.Time, limit int) ([]*model.LearningProgress, error) // WordはPreloadする
+	Update(ctx context.Context, tx *gorm.DB, progress *model.LearningProgress) error
+	FindReviewableByTenant(ctx context.Context, db *gorm.DB, tenantID uuid.UUID, today time.Time, limit int) ([]*model.LearningProgress, error)
 }
 
+// gormProgressRepository 構造体に logger フィールドを追加
 type gormProgressRepository struct {
-	// DB接続はService層から渡される想定
+	logger *slog.Logger // slog.Logger フィールドを追加
 }
 
-func NewGormProgressRepository() ProgressRepository {
-	return &gormProgressRepository{}
+// NewGormProgressRepository コンストラクタで logger を受け取るように変更
+func NewGormProgressRepository(logger *slog.Logger) ProgressRepository { // logger を引数に追加
+	// ロガーが nil の場合にデフォルトロガーを使用
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &gormProgressRepository{
+		logger: logger, // logger を設定
+	}
 }
 
 func (r *gormProgressRepository) Create(ctx context.Context, tx *gorm.DB, progress *model.LearningProgress) error {
-	// UUIDはService層で設定済み想定
 	result := tx.WithContext(ctx).Create(progress)
-	// GORMは複合ユニーク制約違反などをErrorで返す
-	return result.Error
+	if result.Error != nil {
+		// slog で予期せぬDBエラーログ
+		r.logger.Error("Error creating progress in DB",
+			slog.Any("error", result.Error),
+			slog.String("tenant_id", progress.TenantID.String()),
+			slog.String("word_id", progress.WordID.String()),
+			slog.String("progress_id", progress.ProgressID.String()),
+		)
+		return result.Error // エラーをそのまま返す
+	}
+	return nil
 }
 
 func (r *gormProgressRepository) FindByWordID(ctx context.Context, db *gorm.DB, tenantID, wordID uuid.UUID) (*model.LearningProgress, error) {
 	var progress model.LearningProgress
-	// Preloadで関連するWordも取得する (必要に応じて)
 	result := db.WithContext(ctx).Preload("Word").Where("tenant_id = ? AND word_id = ?", tenantID, wordID).First(&progress)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, model.ErrNotFound
+			return nil, model.ErrNotFound // 見つからない場合はログ不要
 		}
-		return nil, result.Error
+		// slog で予期せぬDBエラーログ
+		r.logger.Error("Error finding progress by word ID in DB",
+			slog.Any("error", result.Error),
+			slog.String("tenant_id", tenantID.String()),
+			slog.String("word_id", wordID.String()),
+		)
+		return nil, result.Error // エラーをそのまま返す
 	}
 	// PreloadしたWordが論理削除されているかチェック (必要なら)
 	if progress.Word != nil && progress.Word.DeletedAt.Valid {
+		// slog で情報ログ (データ不整合の可能性)
+		r.logger.Info("Found progress but associated word is deleted",
+			slog.String("tenant_id", tenantID.String()),
+			slog.String("word_id", wordID.String()),
+			slog.String("progress_id", progress.ProgressID.String()),
+		)
 		return nil, model.ErrNotFound // 実質的にProgressも無効とみなす
 	}
 	return &progress, nil
 }
 
 func (r *gormProgressRepository) Update(ctx context.Context, tx *gorm.DB, progress *model.LearningProgress) error {
-	// progress オブジェクト全体を渡して更新
-	// Select で更新対象カラムを限定することも可能
-	result := tx.WithContext(ctx).Save(progress) // Saveは主キーに基づいてUpdate or Insertを行う。ここではUpdate。
+	result := tx.WithContext(ctx).Save(progress)
 	if result.Error != nil {
-		return result.Error
+		// slog で予期せぬDBエラーログ
+		r.logger.Error("Error updating progress in DB (using Save)",
+			slog.Any("error", result.Error),
+			slog.String("tenant_id", progress.TenantID.String()),
+			slog.String("word_id", progress.WordID.String()),
+			slog.String("progress_id", progress.ProgressID.String()),
+		)
+		return result.Error // エラーをそのまま返す
 	}
-	if result.RowsAffected == 0 {
-		// Saveの場合、更新がなくてもエラーにならないことがある。事前に存在確認が必要。
-		// ここでは呼び出し元(Service)で存在確認している想定
-	}
+	// Save は RowsAffected が 0 でもエラーにならないことがある
+	// if result.RowsAffected == 0 {
+	// 	// 必要であればログ出力やエラーハンドリング
+	// }
 	return nil
 }
 
@@ -68,22 +103,24 @@ func (r *gormProgressRepository) FindReviewableByTenant(ctx context.Context, db 
 	var progresses []*model.LearningProgress
 	todayDate := today.Truncate(24 * time.Hour)
 
-	// Preloadを使用して関連するWord情報も取得する
-	// JOIN条件はGORMがモデル定義から自動生成するが、明示も可能
-	// Wordが論理削除されていないものだけを対象にする
 	result := db.WithContext(ctx).
-		Preload("Word", "deleted_at IS NULL").                                                         // WordをPreloadし、論理削除されていないもののみ
-		Joins("JOIN words ON words.word_id = learning_progress.word_id AND words.deleted_at IS NULL"). // Wordが存在しかつ削除されていないもののみJOIN
+		Preload("Word", "deleted_at IS NULL").
+		Joins("JOIN words ON words.word_id = learning_progress.word_id AND words.deleted_at IS NULL").
 		Where("learning_progress.tenant_id = ? AND learning_progress.next_review_date <= ?", tenantID, todayDate).
 		Order("learning_progress.next_review_date ASC, learning_progress.level ASC").
 		Limit(limit).
 		Find(&progresses)
 
 	if result.Error != nil {
-		return nil, result.Error
+		// slog で予期せぬDBエラーログ
+		r.logger.Error("Error finding reviewable progress by tenant in DB",
+			slog.Any("error", result.Error),
+			slog.String("tenant_id", tenantID.String()),
+			slog.Time("today_date", todayDate),
+			slog.Int("limit", limit),
+		)
+		return nil, result.Error // エラーをそのまま返す
 	}
-
-	// PreloadだけだとWordがNULLになる場合があるため、Joinsで絞り込んだ上で取得する
 
 	return progresses, nil
 }

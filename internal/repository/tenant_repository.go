@@ -3,8 +3,8 @@ package repository
 
 import (
 	"context"
-	"errors"
-	"log" // Logを追加
+	"errors" // Logを追加
+	"log/slog"
 
 	"go_4_vocab_keep/internal/model" // プロジェクト名修正
 
@@ -16,13 +16,18 @@ type TenantRepository interface {
 	Create(ctx context.Context, db *gorm.DB, tenant *model.Tenant) error
 	FindByID(ctx context.Context, db *gorm.DB, tenantID uuid.UUID) (*model.Tenant, error)
 	FindByName(ctx context.Context, db *gorm.DB, name string) (*model.Tenant, error) // テナント名で検索するメソッド
-	Delete(ctx context.Context, db *gorm.DB, tenantID uuid.UUID) error               // テナント名で検索するメソッド
+	// Update(ctx context.Context, db *gorm.DB, tenant *model.Tenant) error
+	Delete(ctx context.Context, db *gorm.DB, tenantID uuid.UUID) error
 }
 
-type gormTenantRepository struct{}
+type gormTenantRepository struct {
+	logger *slog.Logger
+}
 
-func NewGormTenantRepository() TenantRepository {
-	return &gormTenantRepository{}
+func NewGormTenantRepository(logger *slog.Logger) TenantRepository {
+	return &gormTenantRepository{
+		logger: logger,
+	}
 }
 
 func (r *gormTenantRepository) Create(ctx context.Context, db *gorm.DB, tenant *model.Tenant) error {
@@ -30,8 +35,11 @@ func (r *gormTenantRepository) Create(ctx context.Context, db *gorm.DB, tenant *
 	// tenant.TenantID = uuid.New()
 	result := db.WithContext(ctx).Create(tenant)
 	if result.Error != nil {
-		// TODO: より詳細なエラーハンドリング (例: 重複キーエラー)
-		log.Printf("Error creating tenant in DB: %v", result.Error)
+		r.logger.Error(
+			"Error creating tenant in DB",
+			slog.Any("error", result.Error),         // エラーオブジェクトを記録
+			slog.String("tenant_name", tenant.Name), // 関連情報を追加 (例)
+		)
 	}
 	return result.Error
 }
@@ -44,7 +52,11 @@ func (r *gormTenantRepository) FindByID(ctx context.Context, db *gorm.DB, tenant
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, model.ErrNotFound
 		}
-		log.Printf("Error finding tenant %s in DB: %v", tenantID, result.Error)
+		r.logger.Error(
+			"Error finding tenant by ID in DB",
+			slog.Any("error", result.Error),
+			slog.String("tenant_id", tenantID.String()),
+		)
 		return nil, model.ErrInternalServer // DBエラーは汎用エラーに
 	}
 	return &tenant, nil
@@ -79,8 +91,11 @@ func (r *gormTenantRepository) FindByName(ctx context.Context, db *gorm.DB, name
 		}
 
 		// レコードが見つからない以外のデータベースエラーが発生した場合
-		// (例: DB接続断、テーブルが存在しない、権限エラーなど)
-		log.Printf("Error finding tenant by name '%s' in DB: %v", name, result.Error)
+		r.logger.Error(
+			"Error finding tenant by name in DB",
+			slog.Any("error", result.Error),
+			slog.String("tenant_name", name),
+		)
 		// 予期せぬDBエラーとして、アプリケーション定義の内部サーバーエラーを返す
 		return nil, model.ErrInternalServer
 	}
@@ -90,6 +105,61 @@ func (r *gormTenantRepository) FindByName(ctx context.Context, db *gorm.DB, name
 	// そのテナントへのポインタ (&tenant) と、エラーなし (nil) を返す
 	return &tenant, nil
 }
+
+// // --- ★★★ Update メソッドの実装 ★★★ ---
+// // Update は指定されたテナントの情報（通常はIDで識別）をデータベース内で更新します。
+// // 引数 tenant には、更新したい TenantID と、変更後のフィールド値が含まれていることを想定します。
+// // GORM の Save メソッドは、主キーが存在すれば UPDATE 文を、存在しなければ INSERT 文を発行します。
+// // 更新対象が見つからない場合、エラーにはなりにくいですが、RowsAffectedで確認可能です。
+// func (r *gormTenantRepository) Update(ctx context.Context, db *gorm.DB, tenant *model.Tenant) error {
+// 	// --- GORMによるレコード更新処理 ---
+
+// 	// 引数 tenant は、更新対象の TenantID と、更新後の値を持つ model.Tenant のポインタ。
+// 	// tenant.TenantID がレコードを特定するキーとして使われる。
+// 	// tenant.Name など、変更したいフィールドに新しい値を設定しておく必要がある。
+// 	// 更新しないフィールドは通常、ゼロ値や既存の値のまま渡される。
+
+// 	// db.WithContext(ctx): コンテキストをGORMクエリに関連付ける。
+// 	// .Save(tenant): 引数で渡された構造体へのポインタ (`tenant`) を使ってレコードを更新します。
+// 	//   - `tenant` が持つ主キー (TenantID) を使って、データベース内の既存レコードを検索します。
+// 	//   - ★もし主キーに一致するレコードが見つかれば★、そのレコードの **すべてのフィールド** を
+// 	//     `tenant` 構造体の現在の値で上書きする UPDATE 文が発行されます。
+// 	//     (注意: 更新したくないフィールドも上書きされるため、事前にDBから読み込むか、
+// 	//      `Updates` メソッドを使うなどの考慮が必要な場合があります。)
+// 	//   - もし主キーがゼロ値(UUIDの場合は uuid.Nil)だったり、一致するレコードが見つからなかったりした場合、
+// 	//     `Save` は INSERT 文を発行しようとします（今回の用途では通常UPDATEを期待）。
+// 	//   - GORMの `Updates` メソッドを使うと、非ゼロ値のフィールドのみを更新したり、
+// 	//     特定のフィールドだけを更新したりする、より柔軟な制御が可能です。
+// 	//     例: db.Model(&model.Tenant{TenantID: tenant.TenantID}).Updates(model.Tenant{Name: tenant.Name})
+// 	//         -> この場合、Name フィールドのみを更新する UPDATE 文が生成される。
+// 	result := db.WithContext(ctx).Save(tenant)
+
+// 	// --- エラーハンドリング ---
+// 	if result.Error != nil {
+// 		// 更新中に予期せぬDBエラーが発生した場合
+// 		// (例: DB接続断、制約違反、など)
+// 		r.logger.Error(
+// 			"Error updating tenant in DB",
+// 			slog.Any("error", result.Error),
+// 			slog.String("tenant_id", tenant.TenantID.String()),
+// 		)
+// 		return model.ErrInternalServer // 汎用エラーを返す
+// 	}
+
+// 	// --- オプション: 実際に更新された行数の確認 ---
+// 	// 更新対象が見つからなかった場合、RowsAffected は 0 になる可能性があります。
+// 	// 更新対象が存在しない場合に「見つからない」エラーを返すべきかは、APIの仕様によります。
+// 	// if result.RowsAffected == 0 {
+// 	// 	// 更新対象のレコードが見つからなかった場合
+// 	// 	// 既に削除されている、またはIDが間違っている可能性
+// 	// 	log.Printf("Tenant %s not found for update or no changes made.", tenant.TenantID)
+// 	//  // ErrNotFound を返すかどうかは要件次第
+// 	// 	// return model.ErrNotFound
+// 	// }
+
+// 	// エラーが発生しなければ nil を返す
+// 	return nil
+// }
 
 // Delete は指定されたIDのテナントを論理削除します。
 // gorm.Model を埋め込んでいるため、GORM は deleted_at カラムを更新します。
@@ -134,8 +204,11 @@ func (r *gormTenantRepository) Delete(ctx context.Context, db *gorm.DB, tenantID
 
 	// エラーチェック
 	if result.Error != nil {
-		// 削除中に予期せぬDBエラーが発生した場合
-		log.Printf("Error deleting tenant %s in DB: %v", tenantID, result.Error)
+		r.logger.Error(
+			"Error deleting tenant in DB",
+			slog.Any("error", result.Error),
+			slog.String("tenant_id", tenantID.String()),
+		)
 		return model.ErrInternalServer // 汎用エラーを返す
 	}
 

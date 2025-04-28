@@ -7,6 +7,7 @@ import (
 	// "log" は、ログメッセージを出力するためのGo標準パッケージです。
 	"errors"
 	"log"
+	"log/slog"
 
 	// "net/http" は、HTTPクライアントとサーバーの実装を含むGo標準パッケージです。
 	// Webサーバーのハンドラ関数でリクエスト(r)とレスポンス(w)を扱うために使います。
@@ -57,6 +58,7 @@ type TenantHandler struct {
 	 */
 	//
 	service service.TenantService
+	logger  *slog.Logger
 }
 
 // @structは構造体の定義を示す
@@ -87,11 +89,14 @@ type TenantHandler struct {
  * tenantService := service.NewTenantService(...) // サービス層の準備
  * tenantHandler := handlers.NewTenantHandler(tenantService) // ハンドラの作成
  */
-func NewTenantHandler(s service.TenantService) *TenantHandler {
+func NewTenantHandler(s service.TenantService, logger *slog.Logger) *TenantHandler {
 	// &TenantHandler{service: s} は、TenantHandler構造体の新しいインスタンスを作成し、
 	// その service フィールドに引数 s を設定し、
 	// そのインスタンスへのメモリアドレス（ポインタ）を返します。
-	return &TenantHandler{service: s}
+	return &TenantHandler{
+		service: s,
+		logger:  logger,
+	}
 }
 
 /**
@@ -134,6 +139,7 @@ type CreateTenantRequest struct {
  * r.Post("/tenants", tenantHandler.CreateTenant)
  */
 func (h *TenantHandler) CreateTenant(w http.ResponseWriter, r *http.Request) {
+	logger := h.logger
 	// --- リクエストボディのデコード ---
 	// `var req CreateTenantRequest` で、リクエストボディのデータを格納するための
 	// CreateTenantRequest型の変数 `req` を宣言します。
@@ -153,6 +159,7 @@ func (h *TenantHandler) CreateTenant(w http.ResponseWriter, r *http.Request) {
 		// - `w`: レスポンスを書き込む対象。
 		// - `http.StatusBadRequest`: HTTPステータスコード 400 (Bad Request) を示す定数。
 		// - `"Invalid request body: " + err.Error()`: エラーメッセージ。`err.Error()` でエラーの詳細を取得。
+		logger.Warn("Failed to decode request body", slog.String("error", err.Error()))
 		webutil.RespondWithError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
 		// `return` でこの関数の処理を中断します。これ以降の処理は実行されません。
 		return
@@ -166,15 +173,19 @@ func (h *TenantHandler) CreateTenant(w http.ResponseWriter, r *http.Request) {
 		var validationErrors validator.ValidationErrors
 		// エラーがバリデーションエラーの型かを確認 (errors.As を使うのが推奨)
 		if errors.As(err, &validationErrors) {
-			// バリデーションエラーの詳細を取得し、クライアントに分かりやすいメッセージを返す
-			// (ここでは単純なエラーメッセージを返す例)
-			// より詳細なエラーレスポンス（どのフィールドがどのルール違反か）を生成することも可能
-			errorMsg := "Validation failed: " + validationErrors.Error() // エラー詳細を含むメッセージ
-			log.Printf("Validation error for CreateTenant request: %v", validationErrors)
-			webutil.RespondWithError(w, http.StatusBadRequest, errorMsg) // 400 Bad Request を返す
+			logger.Warn(
+				"Validation failed for CreateTenant request",
+				slog.Any("validation_errors", validationErrors.Error()),
+				slog.Any("request_body", req),
+			)
+			errorMsg := "Validation failed: " + validationErrors.Error()
+			webutil.RespondWithError(w, http.StatusBadRequest, errorMsg)
 		} else {
-			// バリデーションエラー以外の予期せぬエラーの場合
-			log.Printf("Unexpected error during validation: %v", err)
+			logger.Error(
+				"Unexpected error during validation",
+				slog.Any("error", err),
+				slog.Any("request_body", req),
+			)
 			webutil.RespondWithError(w, http.StatusInternalServerError, "Error validating request") // 500 Internal Server Error
 		}
 		return // 処理を中断
@@ -202,9 +213,12 @@ func (h *TenantHandler) CreateTenant(w http.ResponseWriter, r *http.Request) {
 		// 適切なHTTPステータスコード (例: 既に存在するなら 409 Conflict) を決定します。
 		statusCode := webutil.MapErrorToStatusCode(err) // エラーに応じたステータスコード取得
 
-		// `log.Printf` を使って、サーバー側のログにエラーの詳細とステータスコードを出力します。
-		// ログは問題発生時の調査に役立ちます。 `%v` は値を詳細に、 `%d` は整数を出力する書式指定子です。
-		log.Printf("Error creating tenant: %v (status: %d)", err, statusCode)
+		logger.Error(
+			"Failed to create tenant in service",
+			slog.Any("error", err), // エラーオブジェクト全体 [8, 17]
+			slog.Int("status_code", statusCode),
+			slog.String("requested_name", req.Name), // どのリクエストで失敗したかのコンテキスト [6, 14]
+		)
 
 		// `webutil.RespondWithError` で、決定したステータスコードとエラーメッセージをクライアントに返します。
 		webutil.RespondWithError(w, statusCode, err.Error()) // エラーメッセージを返す

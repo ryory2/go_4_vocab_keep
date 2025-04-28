@@ -4,7 +4,9 @@ package handlers_test // _test パッケージ
 import (
 	"bytes"
 	"encoding/json"
+	"io" // ★ io.Discard のためにインポート
 	"log"
+	"log/slog" // ★ slog をインポート
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -110,12 +112,17 @@ func TestTenantHandler_CreateTenant_Integration(t *testing.T) {
 	// 各テスト実行前にテーブルをクリアして独立性を保つ
 	clearTenantsTable(t)
 
+	// --- テスト用ロガーの作成 ---
+	// ログ出力を無視するロガーを作成
+	testLogger := slog.New(slog.NewTextHandler(io.Discard, nil)) // ★ テスト用ロガー作成
+
 	// --- 実際の依存関係を使ってハンドラをセットアップ ---
 	// NewGormTenantRepository が *gorm.DB を引数に取る場合:
-	tenantRepo := repository.NewGormTenantRepository() // リポジトリの実際の実装 (DB接続を渡す)
+	// (もし NewGormTenantRepository も logger を取るように変更した場合は、ここも修正が必要)
+	tenantRepo := repository.NewGormTenantRepository(nil) // リポジトリの実際の実装 (DB接続と必要ならロガーを渡す)
 	// 実際のサービス実装 (テストDB接続とリポジトリを使用)
-	tenantService := service.NewTenantService(testDB, tenantRepo)
-	tenantHandler := handlers.NewTenantHandler(tenantService) // ハンドラの実際の実装
+	tenantService := service.NewTenantService(testDB, tenantRepo, testLogger)
+	tenantHandler := handlers.NewTenantHandler(tenantService, testLogger) // ★ ハンドラの実際の実装にロガーを渡す
 
 	// --- ルーターのセットアップ (テスト対象のエンドポイントを登録) ---
 	router := chi.NewRouter()
@@ -193,7 +200,8 @@ func TestTenantHandler_CreateTenant_Integration(t *testing.T) {
 				// エラーレスポンスのキーが 'message' であることを想定（実際のレスポンス形式に合わせる）
 				if assert.NoError(t, err, "Failed to unmarshal conflict error response") {
 					// model.ErrConflict.Error() 等、期待するエラーメッセージが含まれるか確認
-					assert.Contains(t, errResp["message"], model.ErrConflict.Error(), "Conflict error message mismatch")
+					// ★ クライアント向けのエラーメッセージをチェック
+					assert.Contains(t, errResp["message"], "Failed to create tenant", "Conflict error message mismatch")
 				}
 
 				// --- DBの状態を最終確認 (1件だけ存在すること) ---
@@ -311,7 +319,7 @@ func TestTenantHandler_CreateTenant_Integration(t *testing.T) {
 	// --- テストケースの実行ループ ---
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			clearTenantsTable(t)
+			clearTenantsTable(t) // ★ 重複エラーテストのためにループ内に移動 ★
 			// 1. リクエストボディの準備
 			var reqBodyReader *bytes.Reader
 			if bodyStr, ok := tt.requestBody.(string); ok {
@@ -335,29 +343,35 @@ func TestTenantHandler_CreateTenant_Integration(t *testing.T) {
 			router.ServeHTTP(rr, req)
 
 			// 5. レスポンスのステータスコードを検証
-			assert.Equal(t, tt.expectedStatus, rr.Code, "Status code mismatch")
+			// ★ 重複エラーテストでは verifyDB 内で2回目のレスポンスを検証するため、ここではスキップ ★
+			if tt.name != "異常系: 重複エラー (同じ名前で2回作成)" {
+				assert.Equal(t, tt.expectedStatus, rr.Code, "Status code mismatch")
+			}
 
 			// 6. レスポンスボディの検証
-			if tt.expectBody {
-				// 正常系のレスポンスボディを検証
-				assert.Equal(t, "application/json", rr.Header().Get("Content-Type"), "Content-Type should be application/json")
-				var respTenant model.Tenant
-				err := json.Unmarshal(rr.Body.Bytes(), &respTenant)
-				require.NoError(t, err, "Failed to unmarshal success response body")
-				assert.Equal(t, tt.expectedRespName, respTenant.Name, "Response tenant name mismatch")
-				assert.NotEqual(t, uuid.Nil, respTenant.TenantID, "Response TenantID should not be nil")
-				assert.False(t, respTenant.CreatedAt.IsZero(), "Response CreatedAt should not be zero")
-				assert.False(t, respTenant.UpdatedAt.IsZero(), "Response UpdatedAt should not be zero")
-			} else if tt.expectedErrMsg != "" {
-				// エラー系のレスポンスボディを検証
-				var errResp map[string]string // エラーレスポンスの形式を想定
-				err := json.Unmarshal(rr.Body.Bytes(), &errResp)
-				// エラーレスポンスのキーが 'message' であることを想定
-				if assert.NoError(t, err, "Failed to unmarshal error response body (expected JSON with 'message' key)") {
-					assert.Contains(t, errResp["message"], tt.expectedErrMsg, "Error message mismatch")
-				} else {
-					// JSONとしてパースできなかった場合、生のボディに含まれるか確認 (代替策)
-					assert.Contains(t, rr.Body.String(), tt.expectedErrMsg, "Raw error message mismatch in non-JSON response")
+			// ★ 重複エラーテストでは verifyDB 内で検証するため、ここではスキップ ★
+			if tt.name != "異常系: 重複エラー (同じ名前で2回作成)" {
+				if tt.expectBody {
+					// 正常系のレスポンスボディを検証
+					assert.Equal(t, "application/json", rr.Header().Get("Content-Type"), "Content-Type should be application/json")
+					var respTenant model.Tenant
+					err := json.Unmarshal(rr.Body.Bytes(), &respTenant)
+					require.NoError(t, err, "Failed to unmarshal success response body")
+					assert.Equal(t, tt.expectedRespName, respTenant.Name, "Response tenant name mismatch")
+					assert.NotEqual(t, uuid.Nil, respTenant.TenantID, "Response TenantID should not be nil")
+					assert.False(t, respTenant.CreatedAt.IsZero(), "Response CreatedAt should not be zero")
+					assert.False(t, respTenant.UpdatedAt.IsZero(), "Response UpdatedAt should not be zero")
+				} else if tt.expectedErrMsg != "" {
+					// エラー系のレスポンスボディを検証
+					var errResp map[string]string // エラーレスポンスの形式を想定
+					err := json.Unmarshal(rr.Body.Bytes(), &errResp)
+					// エラーレスポンスのキーが 'message' であることを想定
+					if assert.NoError(t, err, "Failed to unmarshal error response body (expected JSON with 'message' key)") {
+						assert.Contains(t, errResp["message"], tt.expectedErrMsg, "Error message mismatch")
+					} else {
+						// JSONとしてパースできなかった場合、生のボディに含まれるか確認 (代替策)
+						assert.Contains(t, rr.Body.String(), tt.expectedErrMsg, "Raw error message mismatch in non-JSON response")
+					}
 				}
 			}
 

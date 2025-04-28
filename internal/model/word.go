@@ -12,8 +12,8 @@ import (
 type Word struct {
 	WordID     uuid.UUID      `gorm:"type:uuid;primaryKey" json:"word_id"`
 	TenantID   uuid.UUID      `gorm:"type:uuid;not null;index" json:"-"`
-	Term       string         `gorm:"not null" json:"term"`
-	Definition string         `gorm:"not null" json:"definition"`
+	Term       string         `gorm:"not null" json:"term"`       // 単語
+	Definition string         `gorm:"not null" json:"definition"` // 単語の定義
 	CreatedAt  time.Time      `json:"created_at"`
 	UpdatedAt  time.Time      `json:"updated_at"`
 	DeletedAt  gorm.DeletedAt `gorm:"index" json:"-"` // 論理削除用

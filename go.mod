@@ -14,7 +14,11 @@ require (
 	gorm.io/gorm v1.25.12
 )
 
-require github.com/mattn/go-sqlite3 v1.14.22 // indirect
+require (
+	github.com/lmittmann/tint v1.0.7 // indirect
+	github.com/mattn/go-sqlite3 v1.14.22 // indirect
+	github.com/orandin/slog-gorm v1.4.0 // indirect
+)
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect

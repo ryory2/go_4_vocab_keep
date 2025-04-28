@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -122,6 +124,7 @@ func setupTestDB() *gorm.DB {
 
 // --- テスト本体 ---
 func Test_tenantService_CreateTenant(t *testing.T) {
+	testLogger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	// --- テスト用の準備 ---
 	// context.Background(): Go言語の標準ライブラリ context パッケージが提供する関数です。
 	// これは、最も基本的で空の Context オブジェクトを生成します。
@@ -140,7 +143,7 @@ func Test_tenantService_CreateTenant(t *testing.T) {
 	mockTenantRepo := new(mocks.TenantRepository) // モックリポジトリのインスタンス作成
 
 	// テスト対象のサービスインスタンス作成 (モックを注入)
-	tenantService := NewTenantService(db, mockTenantRepo)
+	tenantService := NewTenantService(db, mockTenantRepo, testLogger)
 
 	// --- テストケースの定義 ---
 	testTenantName := "Test Tenant"
@@ -362,11 +365,12 @@ func Test_tenantService_CreateTenant(t *testing.T) {
 
 // --- ここから GetTenant のテストコード ---
 func Test_tenantService_GetTenant(t *testing.T) {
+	testLogger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	// --- テスト用の準備 ---
 	ctx := context.Background()
 	db := setupTestDB() // GetTenant は db を直接使うが、操作はモック経由
 	mockTenantRepo := new(mocks.TenantRepository)
-	tenantService := NewTenantService(db, mockTenantRepo)
+	tenantService := NewTenantService(db, mockTenantRepo, testLogger)
 
 	testTenantID := uuid.New()       // テスト用の固定ID
 	expectedTenant := &model.Tenant{ // 正常系で返されることを期待するテナント
@@ -473,11 +477,12 @@ func Test_tenantService_GetTenant(t *testing.T) {
 
 // --- ここから DeleteTenant のテストコード ---
 func Test_tenantService_DeleteTenant(t *testing.T) {
+	testLogger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	// --- テスト用の準備 ---
 	ctx := context.Background()
 	db := setupTestDB() // GetTenant は db を直接使うが、操作はモック経由
 	mockTenantRepo := new(mocks.TenantRepository)
-	tenantService := NewTenantService(db, mockTenantRepo)
+	tenantService := NewTenantService(db, mockTenantRepo, testLogger)
 
 	testTenantID := uuid.New() // テスト用の固定ID
 

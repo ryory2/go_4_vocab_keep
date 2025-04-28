@@ -4,7 +4,7 @@ package service
 import (
 	"context" // errorsを追加
 	"errors"
-	"log"
+	"log/slog"
 
 	"go_4_vocab_keep/internal/model"      // プロジェクト名修正
 	"go_4_vocab_keep/internal/repository" // プロジェクト名修正
@@ -15,17 +15,18 @@ import (
 
 type TenantService interface {
 	CreateTenant(ctx context.Context, name string) (*model.Tenant, error)
-	GetTenant(ctx context.Context, tenantID uuid.UUID) (*model.Tenant, error) // GetTenantを追加
-	DeleteTenant(ctx context.Context, tenantID uuid.UUID) error               // GetTenantを追加
+	GetTenant(ctx context.Context, tenantID uuid.UUID) (*model.Tenant, error)
+	DeleteTenant(ctx context.Context, tenantID uuid.UUID) error
 }
 
 type tenantService struct {
 	db         *gorm.DB
 	tenantRepo repository.TenantRepository
+	logger     *slog.Logger
 }
 
-func NewTenantService(db *gorm.DB, repo repository.TenantRepository) TenantService {
-	return &tenantService{db: db, tenantRepo: repo}
+func NewTenantService(db *gorm.DB, repo repository.TenantRepository, logger *slog.Logger) TenantService {
+	return &tenantService{db: db, tenantRepo: repo, logger: logger}
 }
 
 func (s *tenantService) CreateTenant(ctx context.Context, name string) (*model.Tenant, error) {
@@ -33,7 +34,7 @@ func (s *tenantService) CreateTenant(ctx context.Context, name string) (*model.T
 	if name == "" {
 		return nil, model.ErrInvalidInput
 	}
-
+	s.logger.DebugContext(ctx, "Attempting to create tenant", slog.String("name", name))
 	// --- トランザクション内で重複チェックと作成を行う ---
 	var createdTenant *model.Tenant
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -41,12 +42,12 @@ func (s *tenantService) CreateTenant(ctx context.Context, name string) (*model.T
 		existingTenant, err := s.tenantRepo.FindByName(ctx, tx, name)
 		if err != nil && !errors.Is(err, model.ErrNotFound) {
 			// FindByNameで予期せぬDBエラーが発生した場合
-			log.Printf("Error checking tenant name existence in repo: %v", err)
+			s.logger.ErrorContext(ctx, "Error checking tenant name existence in repo", slog.Any("error", err), slog.String("name", name))
 			return model.ErrInternalServer // 内部エラー
 		}
 		// エラーがなく (err == nil)、かつ existingTenant が見つかった場合 -> 重複
 		if err == nil && existingTenant != nil {
-			log.Printf("Error Conflict: %v", err)
+			s.logger.WarnContext(ctx, "Tenant name already exists", slog.String("name", name), slog.String("existing_tenant_id", existingTenant.TenantID.String()))
 			return model.ErrConflict // 重複エラーを返す
 		}
 		// ここまで到達した場合、err は model.ErrNotFound または nil (かつ existingTenant == nil) なので重複なし
@@ -59,7 +60,7 @@ func (s *tenantService) CreateTenant(ctx context.Context, name string) (*model.T
 		}
 		if err := s.tenantRepo.Create(ctx, tx, tenant); err != nil {
 			// Create でエラーが発生した場合 (DB制約違反の可能性もあるが特定は難しい)
-			log.Printf("Error creating tenant in repo: %v", err)
+			s.logger.ErrorContext(ctx, "Error creating tenant in repo", slog.Any("error", err), slog.String("name", name))
 			// TODO: GORMエラーから重複キーエラーを特定できれば ErrConflict を返す
 			// if isDuplicateKeyError(err) { return model.ErrConflict }
 			return model.ErrInternalServer // 汎用エラーを返す
@@ -77,6 +78,7 @@ func (s *tenantService) CreateTenant(ctx context.Context, name string) (*model.T
 		// (model.ErrConflict や model.ErrInternalServer)
 		return nil, err
 	}
+	s.logger.InfoContext(ctx, "Successfully created tenant", slog.String("tenant_id", createdTenant.TenantID.String()), slog.String("name", createdTenant.Name))
 
 	// トランザクションが成功した場合、作成されたテナント情報を返す
 	return createdTenant, nil
@@ -84,11 +86,17 @@ func (s *tenantService) CreateTenant(ctx context.Context, name string) (*model.T
 
 // GetTenant は指定されたIDのテナントを取得します (認証用などに利用)
 func (s *tenantService) GetTenant(ctx context.Context, tenantID uuid.UUID) (*model.Tenant, error) {
+	s.logger.DebugContext(ctx, "Getting tenant", slog.String("tenant_id", tenantID.String()))
 	tenant, err := s.tenantRepo.FindByID(ctx, s.db, tenantID)
 	if err != nil {
-		// model.ErrNotFound や model.ErrInternalServer が返る想定
+		if errors.Is(err, model.ErrNotFound) {
+			s.logger.WarnContext(ctx, "Tenant not found", slog.String("tenant_id", tenantID.String()))
+		} else {
+			s.logger.ErrorContext(ctx, "Error finding tenant by ID", slog.Any("error", err), slog.String("tenant_id", tenantID.String()))
+		}
 		return nil, err
 	}
+	s.logger.DebugContext(ctx, "Tenant found", slog.String("tenant_id", tenantID.String()), slog.String("name", tenant.Name))
 	return tenant, nil
 }
 
