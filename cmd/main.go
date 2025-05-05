@@ -138,15 +138,8 @@ func main() {
 		// --- Protected routes (require Tenant ID) ---
 		r.Group(func(r chi.Router) {
 			// 強化したテナント認証ミドルウェアを適用
-			if config.Cfg.Auth.Enabled {
-				// 本番モード: DB検証を行う認証ミドルウェアを適用
-				slog.Info("Applying production authentication middleware")
-				r.Use(middleware.TenantAuthMiddleware(tenantAuthenticator))
-			} else {
-				// 開発モード: DB検証を行わない簡易ミドルウェアを適用
-				slog.Info("Applying development (no validation) authentication middleware")
-				r.Use(middleware.DevTenantContextMiddleware)
-			}
+			slog.Info("Applying production authentication middleware")
+			r.Use(middleware.TenantAuthMiddleware(tenantAuthenticator))
 
 			// Word routes
 			r.Route("/words", func(r chi.Router) {
