@@ -46,12 +46,12 @@ func (_m *ReviewService) GetReviewWords(ctx context.Context, tenantID uuid.UUID)
 	return r0, r1
 }
 
-// SubmitReviewResult provides a mock function with given fields: ctx, tenantID, wordID, isCorrect
-func (_m *ReviewService) SubmitReviewResult(ctx context.Context, tenantID uuid.UUID, wordID uuid.UUID, isCorrect bool) error {
+// UpsertLearningProgressBasedOnReview provides a mock function with given fields: ctx, tenantID, wordID, isCorrect
+func (_m *ReviewService) UpsertLearningProgressBasedOnReview(ctx context.Context, tenantID uuid.UUID, wordID uuid.UUID, isCorrect bool) error {
 	ret := _m.Called(ctx, tenantID, wordID, isCorrect)
 
 	if len(ret) == 0 {
-		panic("no return value specified for SubmitReviewResult")
+		panic("no return value specified for UpsertLearningProgressBasedOnReview")
 	}
 
 	var r0 error

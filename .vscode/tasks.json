@@ -4,11 +4,6 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "echo",
-            "type": "shell",
-            "command": "echo Hello"
-        },
-        {
             "label": "Run Go Generate (in cmd dir)", // タスクのわかりやすい名前
             "type": "shell", // シェルでコマンドを実行するタイプ
             // 実行するコマンドを指定。

@@ -12,12 +12,14 @@ import (
 	"strings"
 	"testing"
 
+	// "time" // このテストファイルでは time は不要になりました
+
 	"go_4_vocab_keep/internal/handlers" // テスト対象
 	"go_4_vocab_keep/internal/model"
 
 	// モックサービスをインポート (適切なパスに変更してください)
 	svc_mocks "go_4_vocab_keep/internal/service/mocks"
-
+	// webutil をインポート
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -52,19 +54,6 @@ func newJsonRequestReview(t *testing.T, method string, target string, body inter
 	return req
 }
 
-// --- ヘルパー: chi ルーターのセットアップ (テスト用) ---
-func setupTestServerReview(t *testing.T, handler http.HandlerFunc, method string, path string) *httptest.Server {
-	r := chi.NewRouter()
-	// ルーティング設定
-	switch method {
-	case http.MethodGet:
-		r.Get(path, handler)
-	case http.MethodPost: // SubmitReviewResult は POST かもしれないが、例として POST
-		r.Post(path, handler)
-	}
-	return httptest.NewServer(r)
-}
-
 // --- ヘルパー: chi の RouteContext を設定 ---
 func contextWithChiURLParamReview(ctx context.Context, key, value string) context.Context {
 	rctx := chi.NewRouteContext()
@@ -78,6 +67,7 @@ func TestReviewHandler_GetReviewWords(t *testing.T) {
 	handler := setupTestReviewHandler(mockService)
 
 	testTenantID := uuid.New()
+	// model.TenantIDKey がエクスポートされていない場合は直接文字列を使うなど調整
 	ctxWithTenant := context.WithValue(context.Background(), model.TenantIDKey, testTenantID)
 	expectedReviewWords := []*model.ReviewWordResponse{
 		{WordID: uuid.New(), Term: "review1", Definition: "def1", Level: model.Level1},
@@ -98,7 +88,7 @@ func TestReviewHandler_GetReviewWords(t *testing.T) {
 				mockService.On("GetReviewWords", mock.Anything, testTenantID).Return(expectedReviewWords, nil).Once()
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody:   `[{"word_id":"`, // 配列で始まる
+			expectedBody:   `[{"word_id":"`,
 		},
 		{
 			name:         "正常系: 0件取得",
@@ -107,7 +97,7 @@ func TestReviewHandler_GetReviewWords(t *testing.T) {
 				mockService.On("GetReviewWords", mock.Anything, testTenantID).Return([]*model.ReviewWordResponse{}, nil).Once()
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody:   `[]`, // 空の配列
+			expectedBody:   `[]`,
 		},
 		{
 			name:         "正常系: サービスがnilを返す",
@@ -116,14 +106,15 @@ func TestReviewHandler_GetReviewWords(t *testing.T) {
 				mockService.On("GetReviewWords", mock.Anything, testTenantID).Return(nil, nil).Once()
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody:   `[]`, // ハンドラで空配列に変換
+			expectedBody:   `[]`,
 		},
 		{
 			name:           "異常系: 認証エラー",
-			setupContext:   func() context.Context { return context.Background() },
-			setupMock:      func() {},
+			setupContext:   func() context.Context { return context.Background() }, // TenantIDなしコンテキスト
+			setupMock:      func() { /* サービスは呼ばれない */ },
 			expectedStatus: http.StatusUnauthorized,
-			expectedBody:   "Tenant ID not found in context",
+			// ★★★ 修正点: 期待するエラーメッセージを model.ErrTenantNotFound.Error() の結果に合わせる ★★★
+			expectedBody: model.ErrTenantNotFound.Error(), // またはテスト失敗時のメッセージ "tenant not found or invalid"
 		},
 		{
 			name:         "異常系: サービスエラー",
@@ -141,7 +132,7 @@ func TestReviewHandler_GetReviewWords(t *testing.T) {
 			mockService.Mock = mock.Mock{}
 			tt.setupMock()
 
-			req := newJsonRequestReview(t, http.MethodGet, "/review/words", nil) // パスは例
+			req := newJsonRequestReview(t, http.MethodGet, "/review/words", nil)
 			req = req.WithContext(tt.setupContext())
 
 			rr := httptest.NewRecorder()
@@ -149,6 +140,7 @@ func TestReviewHandler_GetReviewWords(t *testing.T) {
 
 			assert.Equal(t, tt.expectedStatus, rr.Code)
 			if tt.expectedBody != "" {
+				// 完全一致ではなく部分一致でチェックする (JSON構造を含むため)
 				assert.Contains(t, rr.Body.String(), tt.expectedBody)
 			}
 
@@ -175,7 +167,7 @@ func TestReviewHandler_SubmitReviewResult(t *testing.T) {
 		setupContext   func() context.Context
 		setupMock      func()
 		expectedStatus int
-		expectedBody   string // エラー時のメッセージ
+		expectedBody   string
 	}{
 		{
 			name:         "正常系: 正解を送信",
@@ -184,9 +176,9 @@ func TestReviewHandler_SubmitReviewResult(t *testing.T) {
 			isCorrectArg: true,
 			setupContext: func() context.Context { return ctxWithTenant },
 			setupMock: func() {
-				mockService.On("SubmitReviewResult", mock.Anything, testTenantID, testWordID, true).Return(nil).Once()
+				mockService.On("UpsertLearningProgressBasedOnReview", mock.Anything, testTenantID, testWordID, true).Return(nil).Once()
 			},
-			expectedStatus: http.StatusNoContent, // 成功時は 204
+			expectedStatus: http.StatusNoContent,
 			expectedBody:   "",
 		},
 		{
@@ -196,7 +188,7 @@ func TestReviewHandler_SubmitReviewResult(t *testing.T) {
 			isCorrectArg: false,
 			setupContext: func() context.Context { return ctxWithTenant },
 			setupMock: func() {
-				mockService.On("SubmitReviewResult", mock.Anything, testTenantID, testWordID, false).Return(nil).Once()
+				mockService.On("UpsertLearningProgressBasedOnReview", mock.Anything, testTenantID, testWordID, false).Return(nil).Once()
 			},
 			expectedStatus: http.StatusNoContent,
 			expectedBody:   "",
@@ -205,17 +197,18 @@ func TestReviewHandler_SubmitReviewResult(t *testing.T) {
 			name:           "異常系: 認証エラー",
 			wordIDParam:    validWordIDStr,
 			reqBody:        &model.SubmitReviewRequest{IsCorrect: true},
-			setupContext:   func() context.Context { return context.Background() },
-			setupMock:      func() {},
+			setupContext:   func() context.Context { return context.Background() }, // TenantIDなし
+			setupMock:      func() { /* サービスは呼ばれない */ },
 			expectedStatus: http.StatusUnauthorized,
-			expectedBody:   "Tenant ID not found in context",
+			// ★★★ 修正点: 期待するエラーメッセージを model.ErrTenantNotFound.Error() の結果に合わせる ★★★
+			expectedBody: model.ErrTenantNotFound.Error(), // またはテスト失敗時のメッセージ "tenant not found or invalid"
 		},
 		{
 			name:           "異常系: 不正なWordID形式",
 			wordIDParam:    "invalid-uuid",
 			reqBody:        &model.SubmitReviewRequest{IsCorrect: true},
 			setupContext:   func() context.Context { return ctxWithTenant },
-			setupMock:      func() {},
+			setupMock:      func() { /* サービスは呼ばれない */ },
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   "Invalid word ID format",
 		},
@@ -224,7 +217,7 @@ func TestReviewHandler_SubmitReviewResult(t *testing.T) {
 			wordIDParam:    validWordIDStr,
 			reqBody:        `{"is_correct":`, // 不正なJSON
 			setupContext:   func() context.Context { return ctxWithTenant },
-			setupMock:      func() {},
+			setupMock:      func() { /* サービスは呼ばれない */ },
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   "Invalid request body",
 		},
@@ -233,7 +226,7 @@ func TestReviewHandler_SubmitReviewResult(t *testing.T) {
 			wordIDParam:    validWordIDStr,
 			reqBody:        `{"is_correct":"true"}`, // bool ではなく string
 			setupContext:   func() context.Context { return ctxWithTenant },
-			setupMock:      func() {},
+			setupMock:      func() { /* サービスは呼ばれない */ },
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   "Invalid request body", // デコードエラーになるはず
 		},
@@ -244,7 +237,7 @@ func TestReviewHandler_SubmitReviewResult(t *testing.T) {
 			isCorrectArg: true,
 			setupContext: func() context.Context { return ctxWithTenant },
 			setupMock: func() {
-				mockService.On("SubmitReviewResult", mock.Anything, testTenantID, testWordID, true).Return(model.ErrNotFound).Once()
+				mockService.On("UpsertLearningProgressBasedOnReview", mock.Anything, testTenantID, testWordID, true).Return(model.ErrNotFound).Once()
 			},
 			expectedStatus: http.StatusNotFound,
 			expectedBody:   "Failed to submit review result",
@@ -256,7 +249,7 @@ func TestReviewHandler_SubmitReviewResult(t *testing.T) {
 			isCorrectArg: false,
 			setupContext: func() context.Context { return ctxWithTenant },
 			setupMock: func() {
-				mockService.On("SubmitReviewResult", mock.Anything, testTenantID, testWordID, false).Return(errors.New("internal service error")).Once()
+				mockService.On("UpsertLearningProgressBasedOnReview", mock.Anything, testTenantID, testWordID, false).Return(errors.New("internal service error")).Once()
 			},
 			expectedStatus: http.StatusInternalServerError,
 			expectedBody:   "Failed to submit review result",
@@ -276,10 +269,11 @@ func TestReviewHandler_SubmitReviewResult(t *testing.T) {
 			req = req.WithContext(chiCtx)
 
 			rr := httptest.NewRecorder()
-			handler.SubmitReviewResult(rr, req)
+			handler.UpsertLearningProgressBasedOnReview(rr, req)
 
 			assert.Equal(t, tt.expectedStatus, rr.Code)
 			if tt.expectedBody != "" {
+				// 完全一致ではなく部分一致でチェック
 				assert.Contains(t, rr.Body.String(), tt.expectedBody)
 			} else {
 				assert.Empty(t, rr.Body.String()) // 204 No Content はボディ空

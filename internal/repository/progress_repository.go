@@ -137,10 +137,12 @@ func (r *gormProgressRepository) FindReviewableByTenant(ctx context.Context, db 
 	todayDate := today.Truncate(24 * time.Hour)
 
 	result := db.WithContext(ctx).
+		// progressテーブルを取得する際、wordテーブルの値も取得する（論理削除されていないもの）。外部IDはmodelで定義されている
 		Preload("Word", "deleted_at IS NULL").
 		Joins("JOIN words ON words.word_id = learning_progress.word_id AND words.deleted_at IS NULL").
+		// テナントID、日付で絞り込み
 		Where("learning_progress.tenant_id = ? AND learning_progress.next_review_date <= ?", tenantID, todayDate).
-		Order("learning_progress.next_review_date ASC, learning_progress.level ASC").
+		Order("RANDOM()").
 		Limit(limit).
 		Find(&progresses)
 

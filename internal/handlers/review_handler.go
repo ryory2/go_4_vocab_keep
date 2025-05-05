@@ -63,11 +63,11 @@ func (h *ReviewHandler) GetReviewWords(w http.ResponseWriter, r *http.Request) {
 	webutil.RespondWithJSON(w, http.StatusOK, reviewWords)
 }
 
-func (h *ReviewHandler) SubmitReviewResult(w http.ResponseWriter, r *http.Request) {
+func (h *ReviewHandler) UpsertLearningProgressBasedOnReview(w http.ResponseWriter, r *http.Request) {
 	logger := h.logger
 	tenantID, err := middleware.GetTenantIDFromContext(r.Context())
 	if err != nil {
-		logger.Warn("Unauthorized access attempt for SubmitReviewResult", slog.String("error", err.Error()))
+		logger.Warn("Unauthorized access attempt for UpsertLearningProgressBasedOnReview", slog.String("error", err.Error()))
 		webutil.RespondWithError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
@@ -76,7 +76,7 @@ func (h *ReviewHandler) SubmitReviewResult(w http.ResponseWriter, r *http.Reques
 	wordIDStr := chi.URLParam(r, "word_id")
 	wordID, err := uuid.Parse(wordIDStr)
 	if err != nil {
-		logger.Warn("Invalid word ID format in URL for SubmitReviewResult", slog.String("word_id_str", wordIDStr), slog.String("error", err.Error()))
+		logger.Warn("Invalid word ID format in URL for UpsertLearningProgressBasedOnReview", slog.String("word_id_str", wordIDStr), slog.String("error", err.Error()))
 		webutil.RespondWithError(w, http.StatusBadRequest, "Invalid word ID format")
 		return
 	}
@@ -84,19 +84,19 @@ func (h *ReviewHandler) SubmitReviewResult(w http.ResponseWriter, r *http.Reques
 
 	var req model.SubmitReviewRequest
 	if err := webutil.DecodeJSONBody(r, &req); err != nil {
-		logger.Warn("Failed to decode SubmitReviewResult request body", slog.String("error", err.Error()))
+		logger.Warn("Failed to decode UpsertLearningProgressBasedOnReview request body", slog.String("error", err.Error()))
 		webutil.RespondWithError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
 		return
 	}
 	// is_correct フィールドの存在チェックは、サービス層またはここでさらに厳密に行うことも可能
 
-	err = h.service.SubmitReviewResult(r.Context(), tenantID, wordID, req.IsCorrect)
+	err = h.service.UpsertLearningProgressBasedOnReview(r.Context(), tenantID, wordID, req.IsCorrect)
 	if err != nil {
 		statusCode := webutil.MapErrorToStatusCode(err)
 		// slog でエラーまたは情報ログ (エラー種別による)
 		// ★ 修正点: logAttrs スライスを使わず、直接 slog.Attr を渡す
 		if errors.Is(err, model.ErrNotFound) {
-			logger.Info("SubmitReviewResult service returned not found",
+			logger.Info("UpsertLearningProgressBasedOnReview service returned not found",
 				slog.Any("error", err),
 				slog.Int("status_code", statusCode),
 				slog.Bool("is_correct_submitted", req.IsCorrect),

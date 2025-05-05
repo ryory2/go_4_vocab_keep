@@ -18,7 +18,7 @@ import (
 // ReviewService インターフェース
 type ReviewService interface {
 	GetReviewWords(ctx context.Context, tenantID uuid.UUID) ([]*model.ReviewWordResponse, error)
-	SubmitReviewResult(ctx context.Context, tenantID, wordID uuid.UUID, isCorrect bool) error
+	UpsertLearningProgressBasedOnReview(ctx context.Context, tenantID, wordID uuid.UUID, isCorrect bool) error
 }
 
 // reviewService 構造体に logger フィールドを追加
@@ -82,103 +82,114 @@ func (s *reviewService) GetReviewWords(ctx context.Context, tenantID uuid.UUID) 
 }
 
 // 進捗状況を更新する
-func (s *reviewService) SubmitReviewResult(ctx context.Context, tenantID, wordID uuid.UUID, isCorrect bool) error {
-	operation := "SubmitReviewResult"
+func (s *reviewService) UpsertLearningProgressBasedOnReview(ctx context.Context, tenantID, wordID uuid.UUID, isCorrect bool) error {
+	// 関数名に合わせて operation を変更
+	operation := "RecordReviewOutcome"
 	logger := s.logger.With(
 		slog.String("operation", operation),
 		slog.String("tenant_id", tenantID.String()),
 		slog.String("word_id", wordID.String()),
 	)
 
+	// トランザクションを開始 (内部ロジックは前回の修正と同じ)
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// 1. 該当の学習進捗を取得 (トランザクション内で)
-		var progress *model.LearningProgress
-		// FindByWordID に tx を渡す (リポジトリが対応している必要あり)
-		// または、ここで直接クエリを実行する
-		// progress, findErr := s.progRepo.FindByWordID(ctx, tx, tenantID, wordID)
-		result := tx.WithContext(ctx).Preload("Word").Where("tenant_id = ? AND word_id = ?", tenantID, wordID).First(&progress)
-		findErr := result.Error
+		// 1. 該当の学習進捗を取得試行 (リポジトリ経由)
+		progress, findErr := s.progRepo.FindByWordID(ctx, tx, tenantID, wordID)
 
-		if findErr != nil {
-			if errors.Is(findErr, gorm.ErrRecordNotFound) {
-				// slog で情報ログ
-				logger.Info("Progress not found for word during submit")
-				return model.ErrNotFound
-			}
-			// slog でエラーログ
-			logger.Error("Error finding progress by word ID in transaction", slog.Any("error", findErr))
+		// --- エラーハンドリング (FindByWordIDの結果による分岐) ---
+		if findErr != nil && !errors.Is(findErr, model.ErrNotFound) {
+			logger.Error("Error finding progress via repository in transaction", slog.Any("error", findErr))
 			return model.ErrInternalServer
 		}
-		// Wordが論理削除されていないかもチェック
-		if progress.Word == nil || progress.Word.DeletedAt.Valid {
-			// slog で情報ログ (関連データが見つからない)
-			logger.Info("Word associated with progress is deleted or missing")
-			return model.ErrNotFound // 対象の単語が存在しない
-		}
 
-		// 2. レベルと次回レビュー日を計算
+		// --- ここから進捗の作成または更新処理 ---
 		now := time.Now()
-		previousLevel := progress.Level
-		previousNextReviewDate := progress.NextReviewDate
-		progress.LastReviewedAt = &now
+		newLevel := model.Level1
+		var nextReviewDate time.Time
 
 		if isCorrect {
-			switch progress.Level {
+			currentLevel := model.Level1
+			if progress != nil {
+				currentLevel = progress.Level
+			}
+			switch currentLevel {
 			case model.Level1:
-				progress.Level = model.Level2
-				progress.NextReviewDate = now.AddDate(0, 0, 3)
+				newLevel = model.Level2
+				nextReviewDate = now.AddDate(0, 0, 3)
 			case model.Level2:
-				progress.Level = model.Level3
-				progress.NextReviewDate = now.AddDate(0, 0, 7)
+				newLevel = model.Level3
+				nextReviewDate = now.AddDate(0, 0, 7)
 			case model.Level3:
-				progress.Level = model.Level3                   // Level3のまま
-				progress.NextReviewDate = now.AddDate(0, 0, 14) // 例: さらに伸ばす
+				newLevel = model.Level3
+				nextReviewDate = now.AddDate(0, 0, 14)
 			default:
-				// slog で警告ログ (不正なレベル)
 				logger.Warn("Invalid progress level found, resetting to Level 1",
-					slog.Int("invalid_level", int(progress.Level)),
-					slog.String("progress_id", progress.ProgressID.String()),
+					slog.Int("invalid_level", int(currentLevel)),
+					slog.String("word_id", wordID.String()),
 				)
-				progress.Level = model.Level1
-				progress.NextReviewDate = now.AddDate(0, 0, 1)
+				newLevel = model.Level1
+				nextReviewDate = now.AddDate(0, 0, 1)
 			}
 		} else {
-			progress.Level = model.Level1 // 不正解ならLevel1に戻す
-			progress.NextReviewDate = now.AddDate(0, 0, 1)
+			newLevel = model.Level1
+			nextReviewDate = now.AddDate(0, 0, 1)
 		}
 
-		// slog で変更内容をログ (任意、デバッグ用)
-		logger.Debug("Updating progress level and next review date",
-			slog.Int("previous_level", int(previousLevel)),
-			slog.Int("new_level", int(progress.Level)),
-			slog.Time("previous_next_review_date", previousNextReviewDate),
-			slog.Time("new_next_review_date", progress.NextReviewDate),
-			slog.Bool("is_correct", isCorrect),
-		)
+		// --- データベース操作 (Create or Update) ---
+		if errors.Is(findErr, model.ErrNotFound) {
+			// --- 新規作成 ---
+			logger.Info("Progress not found, creating new progress.", slog.Bool("is_correct", isCorrect))
+			// (Word存在確認は省略)
+			newProgress := &model.LearningProgress{
+				ProgressID:     uuid.New(),
+				TenantID:       tenantID,
+				WordID:         wordID,
+				Level:          newLevel,
+				NextReviewDate: nextReviewDate,
+				LastReviewedAt: &now,
+			}
+			if createErr := s.progRepo.Create(ctx, tx, newProgress); createErr != nil {
+				logger.Error("Error creating new progress in transaction", slog.Any("error", createErr))
+				return model.ErrInternalServer
+			}
+			logger.Debug("New progress created", slog.Any("new_progress", newProgress))
 
-		// 3. 進捗を更新
-		// progRepo.Update も tx を受け取るように修正されている想定
-		if updateErr := s.progRepo.Update(ctx, tx, progress); updateErr != nil {
-			// slog でエラーログ (リポジトリ層でもログされる可能性あり)
-			logger.Error("Error updating progress in transaction", slog.Any("error", updateErr))
-			return model.ErrInternalServer
+		} else {
+			// --- 更新 ---
+			if progress.Word == nil || progress.Word.DeletedAt.Valid {
+				logger.Info("Word associated with progress is deleted or missing (checked before update)")
+				return model.ErrNotFound
+			}
+			previousLevel := progress.Level
+			previousNextReviewDate := progress.NextReviewDate
+			logger.Debug("Updating existing progress level and next review date",
+				slog.Int("previous_level", int(previousLevel)),
+				slog.Int("new_level", int(newLevel)),
+				slog.Time("previous_next_review_date", previousNextReviewDate),
+				slog.Time("new_next_review_date", nextReviewDate),
+				slog.Bool("is_correct", isCorrect),
+				slog.String("progress_id", progress.ProgressID.String()),
+			)
+			progress.Level = newLevel
+			progress.NextReviewDate = nextReviewDate
+			progress.LastReviewedAt = &now
+			if updateErr := s.progRepo.Update(ctx, tx, progress); updateErr != nil {
+				logger.Error("Error updating existing progress in transaction", slog.Any("error", updateErr))
+				return model.ErrInternalServer
+			}
 		}
-
 		return nil // コミット
-	})
+	}) // トランザクション終了
 
 	if err != nil {
-		// トランザクション内で返されたエラー
 		if errors.Is(err, model.ErrNotFound) {
-			// NotFound は既にログ済み
 			return err
 		}
-		// slog でトランザクション全体のエラーログ
 		logger.Error("Transaction failed", slog.Any("error", err))
 		return model.ErrInternalServer
 	}
 
-	// slog で成功ログ
-	logger.Info("Review result submitted successfully")
+	// 関数名に合わせてログメッセージも変更
+	logger.Info("Review outcome recorded successfully")
 	return nil
 }

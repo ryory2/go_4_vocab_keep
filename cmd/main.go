@@ -154,7 +154,7 @@ func main() {
 			// Review routes
 			r.Route("/reviews", func(r chi.Router) {
 				r.Get("/", reviewHandler.GetReviewWords)
-				r.Post("/{word_id}/result", reviewHandler.SubmitReviewResult)
+				r.Post("/{word_id}/result", reviewHandler.UpsertLearningProgressBasedOnReview)
 			})
 			// ここに他の認証が必要なエンドポイントを追加
 		})
