@@ -150,10 +150,11 @@ func main() {
 
 			// Word routes
 			r.Route("/words", func(r chi.Router) {
-				r.Post("/", wordHandler.CreateWord)
-				r.Get("/", wordHandler.ListWords)
+				r.Post("/", wordHandler.PostWord)
+				r.Get("/", wordHandler.GetWords)
 				r.Get("/{word_id}", wordHandler.GetWord)
-				r.Put("/{word_id}", wordHandler.UpdateWord)
+				r.Put("/{word_id}", wordHandler.PutWord)
+				r.Patch("/{word_id}", wordHandler.PatchWord)
 				r.Delete("/{word_id}", wordHandler.DeleteWord)
 			})
 

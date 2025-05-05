@@ -53,7 +53,9 @@ func (r *gormWordRepository) Create(ctx context.Context, tx *gorm.DB, word *mode
 }
 
 func (r *gormWordRepository) FindByID(ctx context.Context, db *gorm.DB, tenantID, wordID uuid.UUID) (*model.Word, error) {
+	// ゼロ値
 	var word model.Word
+	// .First(&word) : 条件に合う最初の1件を探し、その結果を引数に書き込む
 	result := db.WithContext(ctx).Where("tenant_id = ? AND word_id = ?", tenantID, wordID).First(&word)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -87,6 +89,7 @@ func (r *gormWordRepository) FindByTenant(ctx context.Context, db *gorm.DB, tena
 
 func (r *gormWordRepository) Update(ctx context.Context, tx *gorm.DB, tenantID, wordID uuid.UUID, updates map[string]interface{}) error {
 	if len(updates) == 0 {
+		// 更新対象がない場合
 		return nil
 	}
 	result := tx.WithContext(ctx).Model(&model.Word{}).Where("tenant_id = ? AND word_id = ?", tenantID, wordID).Updates(updates)
@@ -126,11 +129,14 @@ func (r *gormWordRepository) Delete(ctx context.Context, tx *gorm.DB, tenantID, 
 }
 
 func (r *gormWordRepository) CheckTermExists(ctx context.Context, db *gorm.DB, tenantID uuid.UUID, term string, excludeWordID *uuid.UUID) (bool, error) {
-	var count int64
+	var count int64 // 結果の件数を格納する変数
+	// 基本となるクエリを構築: コンテキスト、モデル、テナントID、term で絞り込み
 	query := db.WithContext(ctx).Model(&model.Word{}).Where("tenant_id = ? AND term = ?", tenantID, term)
+	// excludeWordID が指定されている（nil でない）場合、その word_id を持つレコードを除外する条件を追加
 	if excludeWordID != nil {
 		query = query.Where("word_id != ?", *excludeWordID)
 	}
+	// 条件に一致するレコード数をカウント
 	result := query.Count(&count)
 	if result.Error != nil {
 		// ★ slog で予期せぬDBエラーログ ★

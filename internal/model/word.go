@@ -26,14 +26,20 @@ func (Word) TableName() string {
 	return "words"
 }
 
-// CreateWordRequest は単語作成リクエストのDTO
-type CreateWordRequest struct {
+// 単語作成リクエストDTO
+type PostWordRequest struct {
 	Term       string `json:"term" validate:"required"`
 	Definition string `json:"definition" validate:"required"`
 }
 
-// UpdateWordRequest は単語更新リクエストのDTO
-type UpdateWordRequest struct {
-	Term       *string `json:"term"`
-	Definition *string `json:"definition"`
+// 単語更新（全体）リクエストDTO
+type PutWordRequest struct {
+	Term       string `json:"term" validate:"required"`
+	Definition string `json:"definition" validate:"required"`
+}
+
+// 単語更新（部分）リクエストDTO
+type PatchWordRequest struct {
+	Term       *string `json:"term,omitempty"` // omitempty を付けるとJSONでnilの場合省略される
+	Definition *string `json:"definition,omitempty"`
 }

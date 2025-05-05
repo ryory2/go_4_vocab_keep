@@ -1,4 +1,4 @@
-// internal/service/review_service.go
+//go:generate mockery --name ReviewService --srcpkg go_4_vocab_keep/internal/service --output ./mocks --outpkg mocks --case=underscore
 package service
 
 import (
@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// ReviewService インターフェース (変更なし)
+// ReviewService インターフェース
 type ReviewService interface {
 	GetReviewWords(ctx context.Context, tenantID uuid.UUID) ([]*model.ReviewWordResponse, error)
 	SubmitReviewResult(ctx context.Context, tenantID, wordID uuid.UUID, isCorrect bool) error
@@ -81,6 +81,7 @@ func (s *reviewService) GetReviewWords(ctx context.Context, tenantID uuid.UUID) 
 	return responses, nil
 }
 
+// 進捗状況を更新する
 func (s *reviewService) SubmitReviewResult(ctx context.Context, tenantID, wordID uuid.UUID, isCorrect bool) error {
 	operation := "SubmitReviewResult"
 	logger := s.logger.With(

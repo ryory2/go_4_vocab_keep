@@ -56,6 +56,24 @@
                 // タスク開始時にターミナルパネルの内容をクリアする (お好みで false に)
                 "clear": true
             }
+        },
+        {
+            "label": "Run Air Hot Reload", // タスクの表示名
+            "type": "shell", // シェルコマンドとして実行
+            // 実行するコマンド: /app に移動し、air を指定の設定ファイルで実行
+            "command": "cd /app && air -c ./cmd/.air.toml",
+            // air は継続的に実行されるため、バックグラウンドタスクとして設定
+            "isBackground": true,
+            // Goのコンパイルエラーなどを拾う必要はないため空に設定
+            "problemMatcher": [],
+            // タスク実行時のターミナルの表示設定
+            "presentation": {
+                "reveal": "always", // 常にターミナルパネルを表示
+                "panel": "dedicated", // このタスク専用のパネルを使用
+                "focus": true, // 実行時にターミナルにフォーカスを合わせる
+                "clear": true, // 実行前にターミナルをクリアする
+                "showReuseMessage": false // ターミナル再利用時のメッセージを表示しない
+            }
         }
     ]
 }

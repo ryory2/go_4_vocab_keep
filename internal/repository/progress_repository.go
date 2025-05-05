@@ -37,11 +37,16 @@ func NewGormProgressRepository(logger *slog.Logger) ProgressRepository { // logg
 	}
 }
 
+// 学習進捗レコードをデータベースに挿入する
+// ctx: リクエストスコープのコンテキスト。
+// tx: GORM トランザクションオブジェクト。
+// progress: データベースに作成する学習進捗データ。
+// error: データベースエラーが発生した場合に返却。成功した場合は nil。
 func (r *gormProgressRepository) Create(ctx context.Context, tx *gorm.DB, progress *model.LearningProgress) error {
 	result := tx.WithContext(ctx).Create(progress)
 	if result.Error != nil {
 		// slog で予期せぬDBエラーログ
-		r.logger.Error("Error creating progress in DB",
+		r.logger.ErrorContext(ctx, "Error creating progress in DB",
 			slog.Any("error", result.Error),
 			slog.String("tenant_id", progress.TenantID.String()),
 			slog.String("word_id", progress.WordID.String()),
@@ -52,6 +57,13 @@ func (r *gormProgressRepository) Create(ctx context.Context, tx *gorm.DB, progre
 	return nil
 }
 
+// 指定されたテナントIDと単語IDに一致する学習進捗レコードを返却する。
+// ctx: リクエストスコープのコンテキスト。
+// db: GORM データベース接続またはトランザクションオブジェクト。
+// tenantID: 検索するテナントID。
+// wordID: 検索する単語ID。
+// (*model.LearningProgress): 見つかった学習進捗データ。見つからない場合や関連単語が削除済みの場合は nil。
+// error: レコードが見つからない場合や関連単語が削除済みの場合は `model.ErrNotFound`。その他のDBエラーの場合はそのエラー。
 func (r *gormProgressRepository) FindByWordID(ctx context.Context, db *gorm.DB, tenantID, wordID uuid.UUID) (*model.LearningProgress, error) {
 	var progress model.LearningProgress
 	result := db.WithContext(ctx).Preload("Word").Where("tenant_id = ? AND word_id = ?", tenantID, wordID).First(&progress)
@@ -80,7 +92,17 @@ func (r *gormProgressRepository) FindByWordID(ctx context.Context, db *gorm.DB, 
 	return &progress, nil
 }
 
+// Save は主キーに基づいて動作し、レコードが存在しない場合は作成しようとしますが、
+// 通常このメソッドは既存レコードの更新に使われます。
+// データベース操作で予期せぬエラーが発生した場合、エラー内容と関連情報を slog を用いてログに出力します。
+//
+// ctx: リクエストスコープのコンテキスト。
+// tx: GORM トランザクションオブジェクト。
+// progress: 更新する学習進捗データ。ProgressID が設定されている必要があります。
+// error: データベースエラーが発生した場合に返されます。成功した場合は nil。
 func (r *gormProgressRepository) Update(ctx context.Context, tx *gorm.DB, progress *model.LearningProgress) error {
+	// レコードの作成（Create）と更新（Update）の両方の機能を持つメソッド
+	// モデルインスタンスの主キーを確認し、存在する場合はすべてのフィールドを更新、しない場合はインサートする。
 	result := tx.WithContext(ctx).Save(progress)
 	if result.Error != nil {
 		// slog で予期せぬDBエラーログ
@@ -99,6 +121,17 @@ func (r *gormProgressRepository) Update(ctx context.Context, tx *gorm.DB, progre
 	return nil
 }
 
+// 指定されたテナントについて、復習期限 (`next_review_date`) が指定された `today` 以前であり、
+// かつ関連する単語 (`words` テーブル) が論理削除されていない学習進捗レコードを検索
+// 結果は `next_review_date` の昇順、次に `level` の昇順でソートされ、`limit` 件数に制限
+
+// ctx: リクエストスコープのコンテキスト。
+// db: GORM データベース接続またはトランザクションオブジェクト。
+// tenantID: 検索対象のテナントID。
+// today: 復習期限の基準日。この日の0時0分0秒以前が対象となります。
+// limit: 取得する最大レコード数。
+// ([]*model.LearningProgress): 条件に一致した学習進捗データのスライス。見つからない場合は空のスライス。
+// error: データベースエラーが発生した場合に返されます。成功した場合は nil。
 func (r *gormProgressRepository) FindReviewableByTenant(ctx context.Context, db *gorm.DB, tenantID uuid.UUID, today time.Time, limit int) ([]*model.LearningProgress, error) {
 	var progresses []*model.LearningProgress
 	todayDate := today.Truncate(24 * time.Hour)
