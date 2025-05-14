@@ -6,7 +6,10 @@
 	// "image": "mcr.microsoft.com/devcontainers/go:1-1.23-bookworm", // 事前にビルドされたイメージを使う場合は、この行のコメントを外し、dockerComposeFileはコメントアウトします。
 	// Docker Hub 等で公開されている Go のイメージを使用可能。 `image` と `dockerComposeFile` は同時に指定できません。
 	"features": { // Dev Container環境からホストOSのDockerデーモンに接続
-		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+		"ghcr.io/devcontainers/features/docker-from-docker:1": {
+			"version": "latest",
+			"moby": false // ホストのDockerを使うのでmoby(Docker CE[docker server])は不要を示す
+		}
 	},
 	"dockerComposeFile": "../docker/docker-compose.local.yml", // 使用する Docker Compose ファイルのパス。相対パス指定。 複数のファイル指定可能(例: `["../docker-compose.yml", "./docker-compose.override.yml"]`)。
 	"service": "task_go", // Docker Compose ファイルで定義されているサービス名。このサービスが開発コンテナとして使用されます。 `dockerComposeFile` で指定したファイルに定義されているサービス名を選択。

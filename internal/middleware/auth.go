@@ -50,8 +50,10 @@ func (a *serviceTenantAuthenticator) Authenticate(ctx context.Context, tenantID 
 func TenantAuthMiddleware(auth TenantAuthenticator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// バリデーションチェック
 			tenantIDStr := r.Header.Get("X-Tenant-ID")
 			if tenantIDStr == "" {
+				// X-Tenant-IDが空の場合
 				log.Println("Authentication failed: X-Tenant-ID header missing")
 				webutil.RespondWithError(w, http.StatusUnauthorized, "Unauthorized: Missing X-Tenant-ID header")
 				return
@@ -59,6 +61,7 @@ func TenantAuthMiddleware(auth TenantAuthenticator) func(http.Handler) http.Hand
 
 			tenantID, err := uuid.Parse(tenantIDStr)
 			if err != nil {
+				// X-Tenant-IDが無効なUUID形式の場合
 				log.Printf("Authentication failed: Invalid X-Tenant-ID format: %s", tenantIDStr)
 				webutil.RespondWithError(w, http.StatusUnauthorized, "Unauthorized: Invalid X-Tenant-ID format")
 				return

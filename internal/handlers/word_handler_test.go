@@ -127,7 +127,7 @@ func TestWordHandler_PostWord(t *testing.T) {
 			setupContext:   func() context.Context { return context.Background() }, // TenantIDなし
 			setupMock:      func() { /* サービスは呼ばれない */ },
 			expectedStatus: http.StatusUnauthorized,
-			expectedBody:   "Tenant ID not found in context", // GetTenantIDFromContext が返すエラーメッセージ
+			expectedBody:   "tenant not found or invalid", // GetTenantIDFromContext が返すエラーメッセージ
 		},
 		{
 			name:           "異常系: 不正なリクエストボディ (JSONデコードエラー)",
@@ -249,7 +249,7 @@ func TestWordHandler_GetWords(t *testing.T) {
 			setupContext:   func() context.Context { return context.Background() },
 			setupMock:      func() {},
 			expectedStatus: http.StatusUnauthorized,
-			expectedBody:   "Tenant ID not found in context",
+			expectedBody:   "tenant not found or invalid",
 		},
 		{
 			name:         "異常系: サービスエラー",
@@ -319,7 +319,7 @@ func TestWordHandler_GetWord(t *testing.T) {
 			setupContext:   func() context.Context { return context.Background() }, // TenantIDなし
 			setupMock:      func() {},
 			expectedStatus: http.StatusUnauthorized,
-			expectedBody:   "Tenant ID not found in context",
+			expectedBody:   "tenant not found or invalid",
 		},
 		{
 			name:           "異常系: 不正なWordID形式",
@@ -416,7 +416,7 @@ func TestWordHandler_PutWord(t *testing.T) {
 			setupContext:   func() context.Context { return context.Background() },
 			setupMock:      func() {},
 			expectedStatus: http.StatusUnauthorized,
-			expectedBody:   "Tenant ID not found in context",
+			expectedBody:   "tenant not found or invalid",
 		},
 		{
 			name:           "異常系: 不正なWordID形式",
@@ -554,7 +554,7 @@ func TestWordHandler_PatchWord(t *testing.T) {
 			setupContext:   func() context.Context { return context.Background() },
 			setupMock:      func() {},
 			expectedStatus: http.StatusUnauthorized,
-			expectedBody:   "Tenant ID not found in context",
+			expectedBody:   "tenant not found or invalid",
 		},
 		{
 			name:           "異常系: 不正なWordID形式",
@@ -687,7 +687,7 @@ func TestWordHandler_DeleteWord(t *testing.T) {
 			setupContext:   func() context.Context { return context.Background() },
 			setupMock:      func() {},
 			expectedStatus: http.StatusUnauthorized,
-			expectedBody:   "Tenant ID not found in context",
+			expectedBody:   "tenant not found or invalid",
 		},
 		{
 			name:           "異常系: 不正なWordID形式",

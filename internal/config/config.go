@@ -4,12 +4,13 @@ package config
 import (
 	"log"
 	"strings"
+
 	// 文字列操作用にインポート
 	// os をインポート (環境変数チェック用に追加)
 	"github.com/spf13/viper"
 )
 
-// 各設定の構造体を定義
+// 各設定の構造体を定義（この構造体を通してGoの設定値を取得する）
 // ログ設定
 type LogConfig struct {
 	Level  string `mapstructure:"level"`  // ログレベル (e.g., "debug", "info", "warn", "error")
@@ -57,12 +58,12 @@ func LoadConfig(path string) error {
 	viper.AutomaticEnv()      // 環境変数を自動で読み込む
 
 	// 環境変数を Config 構造体のフィールドに紐付け、config.yamlから環境変数を設定
-	viper.BindEnv("auth.enabled", "AUTH_ENABLED")
-	viper.BindEnv("log.level", "LOG_LEVEL")           // LOG_LEVEL 環境変数を紐付け
-	viper.BindEnv("log.format", "LOG_FORMAT")         // LOG_FORMAT 環境変数を紐付け
-	viper.BindEnv("database.url", "DATABASE_URL")     // DATABASE_URL 環境変数を紐付け
-	viper.BindEnv("server.port", "PORT")              // PORT 環境変数を紐付け (一般的)
-	viper.BindEnv("app.review_limit", "REVIEW_LIMIT") // REVIEW_LIMIT 環境変数を紐付け
+	// viper.BindEnv("database.url", EnvKeyDatabaseURL) // APP_DATABASE_URL ではなく DATABASE_URL を強制的に読む
+	// viper.BindEnv("server.port", EnvKeyServerPort)   // APP_PORT ではなく PORT を強制的に読む
+	// viper.BindEnv("log.level", EnvKeyLogLevel)       // APP_LOG_LEVEL ではなく LOG_LEVEL を強制的に読む
+	// viper.BindEnv("log.format", EnvKeyLogFormat)     // APP_LOG_FORMAT ではなく LOG_FORMAT を強制的に読む
+	// viper.BindEnv("app.review_limit", EnvKeyAppReviewLimit)
+	// viper.BindEnv("auth.enabled", EnvKeyAuthEnabled)
 
 	// 設定ファイル（config.yaml）の読み込み
 	if err := viper.ReadInConfig(); err != nil {
@@ -73,7 +74,7 @@ func LoadConfig(path string) error {
 			return err
 		}
 	}
-
+	// config.yamlの内容を、前述で定義したConfigに変換（アンマーシャルはデータをプログラムのデータにすること）
 	err := viper.Unmarshal(&Cfg)
 	if err != nil {
 		log.Printf("Error unmarshalling config: %s\n", err)
@@ -82,7 +83,6 @@ func LoadConfig(path string) error {
 
 	// --- デフォルト値の設定 ---
 	// viper.IsSet で設定ファイルや環境変数で明示的に値が設定されたかを確認できる
-
 	if !viper.IsSet("server.port") && Cfg.Server.Port == "" { // 環境変数 PORT も考慮
 		log.Println("Server port not set, using default ':8080'")
 		Cfg.Server.Port = ":8080"
@@ -122,7 +122,7 @@ func LoadConfig(path string) error {
 	log.Println("Config loaded successfully")
 	log.Printf("  Server Port: %s", Cfg.Server.Port)
 	log.Printf("  Review Limit: %d", Cfg.App.ReviewLimit)
-	log.Printf("  Database URL Set: %t", Cfg.Database.URL != "") // URL自体は出力しない方が安全
+	log.Printf("  Database URL Set: %t", Cfg.Database.URL != "") // URL自体は出力しない
 	log.Printf("  Auth Enabled: %t", Cfg.Auth.Enabled)
 	log.Printf("  Log Level: %s", Cfg.Log.Level)
 	log.Printf("  Log Format: %s", Cfg.Log.Format)
