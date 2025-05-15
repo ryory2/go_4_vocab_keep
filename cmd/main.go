@@ -154,7 +154,12 @@ func main() {
 			// Review routes
 			r.Route("/reviews", func(r chi.Router) {
 				r.Get("/", reviewHandler.GetReviewWords)
-				r.Post("/{word_id}/result", reviewHandler.UpsertLearningProgressBasedOnReview)
+				// UpsertLearningProgressBasedOnReview のルーティング
+				// HTTPメソッドは設計によりますが、更新または作成なので PUT または POST が一般的です。
+				// URLに word_id が含まれるので、特定のリソースに対する操作として PUT が適切かもしれません。
+				r.Put("/{word_id}/result", reviewHandler.UpsertLearningProgressBasedOnReview)
+				// もし POST を使う場合:
+				// r.Post("/{word_id}/result", reviewHandler.UpsertLearningProgressBasedOnReview)
 			})
 			// ここに他の認証が必要なエンドポイントを追加
 		})
