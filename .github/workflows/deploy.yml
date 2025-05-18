@@ -22,7 +22,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v2
         with:
           role-to-assume: arn:aws:iam::990606419933:role/github_actions_role
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: "ap-northeast-1" # 東京リージョンを直接指定
 
       # 3. ECRプッシュに必要なログイン
       - name: Log in to Amazon ECR
