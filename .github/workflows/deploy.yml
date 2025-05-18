@@ -75,7 +75,7 @@ jobs:
           # GitHub SecretにSecrets ManagerのシークレットARNまたは名前を保存
           # 例: app/rds/prod/connection_details2 (Terraformで作成したシークレット名)
           # またはその完全なARN
-          RDS_CONNECTION_SECRET_ID: "arn:aws:secretsmanager:ap-northeast-1:990606419933:secret:app/rds/prod/connection_details2-oF9Afj"
+          RDS_CONNECTION_SECRET_ID: "arn:aws:secretsmanager:ap-northeast-1:990606419933:secret:app/rds/prod/connection_details2-zyFMLg"
           # シークレット内のJSONキー (例: Terraformで設定した "db_url")
           SECRET_JSON_KEY_FOR_DB_URL: "db_url"
         run: |
