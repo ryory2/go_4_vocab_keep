@@ -129,30 +129,10 @@ jobs:
           task-definition: task-definition.json
           container-name: backend
           image: ${{ steps.build-image.outputs.image }}
-          secrets: |
-            [
-              {
-                "name": "APP_DATABASE_URL", # コンテナ内で利用する環境変数名
-                # GitHub SecretにSecrets Managerのシークレットの完全なARNを保存しておく
-                "valueFrom": "arn:aws:secretsmanager:ap-northeast-1:990606419933:secret:app/rds/prod/connection_details2-oF9Afj:db_url::AWSCURRENT"
-                # 例: PROD_RDS_CONNECTION_SECRET_ARN の値が
-                # arn:aws:secretsmanager:ap-northeast-1:990606419933:secret:app/rds/prod/connection_details2-oF9Afj
-                # であり、そのシークレット内のJSONキー "db_url" を参照する
-              }
-              # 他にもSecrets Managerから取得したい秘匿情報があればここに追加
-              # {
-              #   "name": "API_KEY",
-              #   "valueFrom": "${{ secrets.PROD_API_KEY_SECRET_ARN }}" // 単一の値のシークレットの場合
-              # }
-            ]
-          environment-variables: | # Secrets Managerで管理しない環境変数
-            [
-              {"name": "APP_SERVER_PORT", "value": ":8080"},
-              {"name": "APP_LOG_LEVEL", "value": "error"},
-              {"name": "APP_LOG_FORMAT", "value": "json"},
-              {"name": "APP_APP_REVIEW_LIMIT", "value": "10"},
-              {"name": "APP_AUTH_ENABLED", "value": "true"}
-            ]
+          # secrets をJSON文字列として指定
+          secrets: '[{"name": "APP_DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:ap-northeast-1:***:secret:app/rds/prod/connection_details2-oF9Afj:db_url::AWSCURRENT"}]'
+          # environment-variables をJSON文字列として指定
+          environment-variables: '[{"name": "APP_SERVER_PORT", "value": ":8080"},{"name": "APP_LOG_LEVEL", "value": "error"},{"name": "APP_LOG_FORMAT", "value": "json"},{"name": "APP_APP_REVIEW_LIMIT", "value": "10"},{"name": "APP_AUTH_ENABLED", "value": "true"}]'
 
       # 6. タスク定義をECSへデプロイ (amazon-ecs-deploy-task-definition@v1)
       - name: Deploy Amazon ECS task definition
