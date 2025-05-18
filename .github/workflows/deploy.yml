@@ -57,6 +57,63 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
+      # migrate CLI をインストール
+      - name: Install golang-migrate CLI
+        run: |
+          set -ex
+          # 最新バージョンを取得するか、特定の安定バージョンを指定
+          MIGRATE_VERSION=$(curl -s https://api.github.com/repos/golang-migrate/migrate/releases/latest | grep tag_name | cut -d '"' -f 4)
+          echo "Downloading migrate version: $MIGRATE_VERSION"
+          curl -L https://github.com/golang-migrate/migrate/releases/download/$MIGRATE_VERSION/migrate.linux-amd64.tar.gz | tar xvz
+          sudo mv migrate /usr/local/bin/migrate
+          migrate -version
+
+      # Secrets ManagerからDB接続URLを取得
+      - name: Get DB Connection URL from AWS Secrets Manager for Migration
+        id: get_db_url_for_migration # このステップのID
+        env:
+          # GitHub SecretにSecrets ManagerのシークレットARNまたは名前を保存
+          # 例: app/rds/prod/connection_details2 (Terraformで作成したシークレット名)
+          # またはその完全なARN
+          RDS_CONNECTION_SECRET_ID: "arn:aws:secretsmanager:ap-northeast-1:990606419933:secret:app/rds/prod/connection_details2-oF9Afj"
+          # シークレット内のJSONキー (例: Terraformで設定した "db_url")
+          SECRET_JSON_KEY_FOR_DB_URL: "db_url"
+        run: |
+          set -ex
+          echo "Fetching DATABASE_URL from Secrets Manager: ${RDS_CONNECTION_SECRET_ID}..."
+          SECRET_STRING=$(aws secretsmanager get-secret-value --secret-id "${RDS_CONNECTION_SECRET_ID}" --query SecretString --output text)
+
+          if [ -z "$SECRET_STRING" ]; then
+            echo "Error: SecretString is empty for secret ${RDS_CONNECTION_SECRET_ID}."
+            exit 1
+          fi
+
+          # jqを使ってJSONキーから値を抽出
+          # ubuntu-latestランナーにはjqがプリインストールされている想定
+          EXTRACTED_VALUE=$(echo "$SECRET_STRING" | jq -r ".${SECRET_JSON_KEY_FOR_DB_URL}")
+
+          if [ "$EXTRACTED_VALUE" == "null" ] || [ -z "$EXTRACTED_VALUE" ]; then
+            echo "Error: Key '${SECRET_JSON_KEY_FOR_DB_URL}' not found or value is null in secret ${RDS_CONNECTION_SECRET_ID}."
+            exit 1
+          fi
+          echo "::set-output name=database_url::$EXTRACTED_VALUE"
+          echo "DATABASE_URL fetched successfully."
+
+      - name: Run Database Migrations (using CLI)
+        env:
+          # 前のステップで取得した値を環境変数として設定
+          DATABASE_URL: ${{ steps.get_db_url_for_migration.outputs.database_url }}
+          MIGRATIONS_PATH: ./db/migrations # あなたのマイグレーションファイルのパス
+        run: |
+          set -ex
+          echo "Running database migrations using CLI..."
+          if [ -z "${DATABASE_URL}" ]; then
+            echo "Error: DATABASE_URL is empty. Migration cannot proceed."
+            exit 1
+          fi
+          migrate -path ${MIGRATIONS_PATH} -database "${DATABASE_URL}" up
+          echo "Database migrations complete."
+
       # 既存のタスク定義をDL
       - name: Download task definition
         run: |
@@ -72,6 +129,30 @@ jobs:
           task-definition: task-definition.json
           container-name: backend
           image: ${{ steps.build-image.outputs.image }}
+          secrets: |
+            [
+              {
+                "name": "APP_DATABASE_URL", # コンテナ内で利用する環境変数名
+                # GitHub SecretにSecrets Managerのシークレットの完全なARNを保存しておく
+                "valueFrom": "arn:aws:secretsmanager:ap-northeast-1:990606419933:secret:app/rds/prod/connection_details2-oF9Afj:db_url::AWSCURRENT"
+                # 例: PROD_RDS_CONNECTION_SECRET_ARN の値が
+                # arn:aws:secretsmanager:ap-northeast-1:990606419933:secret:app/rds/prod/connection_details2-oF9Afj
+                # であり、そのシークレット内のJSONキー "db_url" を参照する
+              }
+              # 他にもSecrets Managerから取得したい秘匿情報があればここに追加
+              # {
+              #   "name": "API_KEY",
+              #   "valueFrom": "${{ secrets.PROD_API_KEY_SECRET_ARN }}" // 単一の値のシークレットの場合
+              # }
+            ]
+          environment-variables: | # Secrets Managerで管理しない環境変数
+            [
+              {"name": "APP_SERVER_PORT", "value": ":8080"},
+              {"name": "APP_LOG_LEVEL", "value": "error"},
+              {"name": "APP_LOG_FORMAT", "value": "json"},
+              {"name": "APP_APP_REVIEW_LIMIT", "value": "10"},
+              {"name": "APP_AUTH_ENABLED", "value": "true"}
+            ]
 
       # 6. タスク定義をECSへデプロイ (amazon-ecs-deploy-task-definition@v1)
       - name: Deploy Amazon ECS task definition
