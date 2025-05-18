@@ -17,7 +17,13 @@ services:
       - DB_PORT=5432
       - DB_USER=admin
       - DB_PASSWORD=password
-      - DB_NAME=todo_db
+      - DB_NAME=vocab_keep
+      - APP_DATABASE_URL=postgres://admin:password@task_postgres:5432/vocab_keep?sslmode=disable
+      - APP_SERVER_PORT=:8080
+      - APP_LOG_LEVEL=error
+      - APP_LOG_FORMAT=text
+      - APP_APP_REVIEW_LIMIT=10 # app.review_limit に対応
+      - APP_AUTH_ENABLED=true   # auth.enabled に対応
     # volumes:
     #   - .:/app
     networks:

@@ -69,6 +69,43 @@
                 "clear": true, // 実行前にターミナルをクリアする
                 "showReuseMessage": false // ターミナル再利用時のメッセージを表示しない
             }
+        }, // --- 追加するタスク (ビルド) ---
+        {
+            "label": "Docker Compose Build (no-cache task_go)",
+            "type": "shell",
+            "command": "docker compose -f '${workspaceFolder}/docker/docker-compose.prod.yml' --env-file '${workspaceFolder}/docker/env/.env.prod' build --no-cache task_go",
+            "group": "build", // ビルドグループに所属させる
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": false,
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        // --- 追加するタスク (起動、ビルドタスクに依存) ---
+        {
+            "label": "Docker Compose Up (task_go)",
+            "type": "shell",
+            "command": "docker compose -f '${workspaceFolder}/docker/docker-compose.prod.yml' --env-file '${workspaceFolder}/docker/env/.env.prod' up -d task_go",
+            "dependsOn": [ // このタスクの前に実行されるタスクを指定
+                "Docker Compose Build (no-cache task_go)"
+            ],
+            "group": {
+                "kind": "test", // 例としてテストグループにするか、別のグループを指定
+                "isDefault": false
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": false,
+                "clear": false // buildのログが残るようにfalseにする場合も
+            },
+            "problemMatcher": []
         }
     ]
 }
