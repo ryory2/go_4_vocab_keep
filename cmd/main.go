@@ -34,7 +34,7 @@ func main() {
 	log.Println("Log Config Loading...")
 
 	// Configを読み込み
-	if err := config.LoadConfig("configs"); err != nil { // "configs" ディレクトリを指定
+	if err := config.LoadConfig("../configs"); err != nil { // "configs" ディレクトリを指定
 		slog.Error("Error loading configuration", slog.Any("error", err))
 		os.Exit(1) // Fatalf の代わりに Error + os.Exit
 	}

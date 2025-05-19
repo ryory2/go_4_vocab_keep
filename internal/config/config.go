@@ -2,7 +2,9 @@
 package config
 
 import (
+	"fmt"
 	"log"
+	"os"
 	"strings"
 
 	// 文字列操作用にインポート
@@ -47,11 +49,37 @@ type Config struct {
 
 var Cfg Config
 
-func LoadConfig(path string) error {
+func LoadConfig(relativePathToSearch string) error {
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
-	viper.AddConfigPath(path)
+
+	// --- 現在のワーキングディレクトリをログに出力 ---
+	currentDir, err := os.Getwd()
+	if err != nil {
+		log.Printf("Warning: Could not get current working directory: %v", err)
+	} else {
+		log.Printf("Current working directory: %s", currentDir)
+	}
 	viper.AddConfigPath(".")
+	log.Println("  - Added search path: . (current working directory)")
+
+	// --- 設定ファイルの検索パスをログに出力 ---
+	log.Println("Attempting to add config search paths:")
+	if relativePathToSearch != "" {
+		viper.AddConfigPath(relativePathToSearch)
+		log.Printf("  - Added search path (from argument): %s (relative to current working dir if not absolute)", relativePathToSearch)
+		// もし絶対パスで解決してログ出力したい場合
+		// absPath, _ := filepath.Abs(filepath.Join(currentDir, relativePathToSearch))
+		// log.Printf("    Resolved to absolute path: %s", absPath)
+	}
+	viper.AddConfigPath(".")
+	log.Println("  - Added search path: . (current working directory)")
+	// (オプション) Viperがデフォルトで探す他のパスもログに出したい場合
+	// log.Printf("  - Viper default search paths might also be considered (e.g., $HOME, /etc)")
+	// viper.SetConfigName("config")
+	// viper.SetConfigType("yaml")
+	// viper.AddConfigPath(path)
+	// viper.AddConfigPath(".")
 
 	// 環境変数名を指定して読み込むことも可能 (例: AUTH_ENABLED)
 	viper.SetEnvPrefix("APP") // 例: APP_AUTH_ENABLED のように接頭辞をつける場合
@@ -65,21 +93,39 @@ func LoadConfig(path string) error {
 	// viper.BindEnv("app.review_limit", EnvKeyAppReviewLimit)
 	// viper.BindEnv("auth.enabled", EnvKeyAuthEnabled)
 
-	// 設定ファイル（config.yaml）の読み込み
+	// 設定ファイルの読み込み試行
+	log.Println("Attempting to read config file (e.g., config.yaml)...")
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			log.Println("Warning: Config file not found. Using default settings or environment variables if available.")
+			log.Println("Warning: Config file not found in specified paths. Using environment variables and/or defaults.")
+			// 検索したパスの詳細をここでもう一度表示しても良い
+			log.Println("  Viper searched in (among others):")
+			if relativePathToSearch != "" {
+				log.Printf("    - %s (from argument)", relativePathToSearch)
+			}
+			log.Println("    - . (current working directory)")
 		} else {
+			// 設定ファイルが見つからない以外のエラー
 			log.Printf("Error reading config file: %s\n", err)
-			return err
+			return fmt.Errorf("error reading config file: %w", err) // fmt.Errorf でエラーをラップ
 		}
+	} else {
+		// --- 読み込みに成功した場合、どのファイルが読み込まれたかをログに出力 ---
+		log.Printf("Successfully read config file from: %s", viper.ConfigFileUsed())
 	}
-	// config.yamlの内容を、前述で定義したConfigに変換（アンマーシャルはデータをプログラムのデータにすること）
-	err := viper.Unmarshal(&Cfg)
-	if err != nil {
+
+	if err := viper.Unmarshal(&Cfg); err != nil {
 		log.Printf("Error unmarshalling config: %s\n", err)
-		return err
+		return fmt.Errorf("error unmarshalling config: %w", err) // fmt.Errorf でエラーをラップ
 	}
+
+	// --- デバッグ用のログ出力 (現状維持) ---
+	log.Println("--- Viper & Config Debug ---")
+	log.Printf("Viper - database.url: %s", viper.GetString("database.url"))
+	// ... (他のViper GetStringログ) ...
+	log.Printf("Cfg.Database.URL: %s", Cfg.Database.URL)
+	// ... (他のCfgフィールドログ) ...
+	log.Println("--------------------------")
 
 	// --- デフォルト値の設定 ---
 	// viper.IsSet で設定ファイルや環境変数で明示的に値が設定されたかを確認できる
