@@ -72,19 +72,18 @@ jobs:
       - name: Get DB Connection URL from AWS Secrets Manager for Migration
         id: get_db_url_for_migration # このステップのID
         env:
-          # GitHub SecretにSecrets ManagerのシークレットARNまたは名前を保存
-          # 例: app/rds/prod/connection_details2 (Terraformで作成したシークレット名)
-          # またはその完全なARN
-          RDS_CONNECTION_SECRET_ID: "arn:aws:secretsmanager:ap-northeast-1:990606419933:secret:app/rds/prod/connection_details2-b9CmI1"
+          # Terraformで作成したシークレット名を直接指定
+          RDS_CONNECTION_SECRET_NAME: "app/rds/prod/connection_details2" # <- 修正点: シークレット名で指定
           # シークレット内のJSONキー (例: Terraformで設定した "db_url")
           SECRET_JSON_KEY_FOR_DB_URL: "db_url"
+          AWS_REGION: "ap-northeast-1" # AWS CLIがリージョンを認識するために追加
         run: |
           set -ex
-          echo "Fetching DATABASE_URL from Secrets Manager: ${RDS_CONNECTION_SECRET_ID}..."
-          SECRET_STRING=$(aws secretsmanager get-secret-value --secret-id "${RDS_CONNECTION_SECRET_ID}" --query SecretString --output text)
+          echo "Fetching DATABASE_URL from Secrets Manager: ${RDS_CONNECTION_SECRET_NAME}..."
+          SECRET_STRING=$(aws secretsmanager get-secret-value --secret-id "${RDS_CONNECTION_SECRET_NAME}" --region "${AWS_REGION}" --query SecretString --output text) # <- 修正点: --secret-id にシークレット名、--region を追加
 
           if [ -z "$SECRET_STRING" ]; then
-            echo "Error: SecretString is empty for secret ${RDS_CONNECTION_SECRET_ID}."
+            echo "Error: SecretString is empty for secret ${RDS_CONNECTION_SECRET_NAME}."
             exit 1
           fi
 
@@ -93,10 +92,11 @@ jobs:
           EXTRACTED_VALUE=$(echo "$SECRET_STRING" | jq -r ".${SECRET_JSON_KEY_FOR_DB_URL}")
 
           if [ "$EXTRACTED_VALUE" == "null" ] || [ -z "$EXTRACTED_VALUE" ]; then
-            echo "Error: Key '${SECRET_JSON_KEY_FOR_DB_URL}' not found or value is null in secret ${RDS_CONNECTION_SECRET_ID}."
+            echo "Error: Key '${SECRET_JSON_KEY_FOR_DB_URL}' not found or value is null in secret ${RDS_CONNECTION_SECRET_NAME}."
             exit 1
           fi
-          echo "::set-output name=database_url::$EXTRACTED_VALUE"
+          # GITHUB_OUTPUTへの書き込み方法を新しい形式に修正
+          echo "database_url=$EXTRACTED_VALUE" >> $GITHUB_OUTPUT
           echo "DATABASE_URL fetched successfully."
 
       - name: Run Database Migrations (using CLI)
