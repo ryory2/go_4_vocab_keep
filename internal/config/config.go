@@ -49,6 +49,17 @@ type Config struct {
 
 var Cfg Config
 
+// 環境変数名を定数として定義 (推奨)
+const (
+	EnvPrefix            = "APP"
+	EnvKeyDatabaseURL    = "APP_DATABASE_URL"
+	EnvKeyServerPort     = "APP_SERVER_PORT"
+	EnvKeyLogLevel       = "APP_LOG_LEVEL"
+	EnvKeyLogFormat      = "APP_LOG_FORMAT"
+	EnvKeyAppReviewLimit = "APP_APP_REVIEW_LIMIT"
+	EnvKeyAuthEnabled    = "APP_AUTH_ENABLED"
+)
+
 func LoadConfig(relativePathToSearch string) error {
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
@@ -82,16 +93,16 @@ func LoadConfig(relativePathToSearch string) error {
 	// viper.AddConfigPath(".")
 
 	// 環境変数名を指定して読み込むことも可能 (例: AUTH_ENABLED)
-	viper.SetEnvPrefix("APP") // 例: APP_AUTH_ENABLED のように接頭辞をつける場合
-	viper.AutomaticEnv()      // 環境変数を自動で読み込む
+	viper.SetEnvPrefix(EnvPrefix) // 例: APP_AUTH_ENABLED のように接頭辞をつける場合
+	viper.AutomaticEnv()          // 環境変数を自動で読み込む
 
 	// 環境変数を Config 構造体のフィールドに紐付け、config.yamlから環境変数を設定
-	// viper.BindEnv("database.url", EnvKeyDatabaseURL) // APP_DATABASE_URL ではなく DATABASE_URL を強制的に読む
-	// viper.BindEnv("server.port", EnvKeyServerPort)   // APP_PORT ではなく PORT を強制的に読む
-	// viper.BindEnv("log.level", EnvKeyLogLevel)       // APP_LOG_LEVEL ではなく LOG_LEVEL を強制的に読む
-	// viper.BindEnv("log.format", EnvKeyLogFormat)     // APP_LOG_FORMAT ではなく LOG_FORMAT を強制的に読む
-	// viper.BindEnv("app.review_limit", EnvKeyAppReviewLimit)
-	// viper.BindEnv("auth.enabled", EnvKeyAuthEnabled)
+	viper.BindEnv("database.url", EnvKeyDatabaseURL)
+	viper.BindEnv("server.port", EnvKeyServerPort)
+	viper.BindEnv("log.level", EnvKeyLogLevel)
+	viper.BindEnv("log.format", EnvKeyLogFormat)
+	viper.BindEnv("app.review_limit", EnvKeyAppReviewLimit)
+	viper.BindEnv("auth.enabled", EnvKeyAuthEnabled)
 
 	// 設定ファイルの読み込み試行
 	log.Println("Attempting to read config file (e.g., config.yaml)...")
