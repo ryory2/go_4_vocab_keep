@@ -40,20 +40,61 @@ jobs:
       #   run: |
       #     docker push 990606419933.dkr.ecr.ap-northeast-1.amazonaws.com/go/go_4_vocab_keep:latest
 
-      # # 3. Dockerイメージをビルド & ECRプッシュに必要なログイン
+      # 3. Dockerイメージをビルド & ECRプッシュに必要なログイン
       - name: Build, tag, and push image to Amazon ECR
         id: build-image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: go/go_4_vocab_keep
+          ECR_REPOSITORY: go/go_4_vocab_keep # ECR上のリポジトリ名
           IMAGE_TAG: ${{ github.sha }}
+          COMPOSE_PROJECT_NAME: go4vocabkeep # docker compose が生成するイメージ名/コンテナ名を固定化するため (任意)
+          DOCKER_COMPOSE_SERVICE_NAME: backend # docker-compose.prod.yml 内のサービス名を指定
         run: |
-          set -x  # 以降のコマンドと展開された変数を出力
+          set -x
           echo "ECR_REGISTRY: $ECR_REGISTRY"
           echo "ECR_REPOSITORY: $ECR_REPOSITORY"
           echo "IMAGE_TAG: $IMAGE_TAG"
-          docker compose --file docker/docker-compose.prod.yml --env-file docker/env/.env.prod build --no-cache
-          docker tag go/go_4_vocab_keep:latest $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "DOCKER_COMPOSE_SERVICE_NAME: $DOCKER_COMPOSE_SERVICE_NAME"
+
+          # Docker Composeでビルド。COMPOSE_PROJECT_NAME を指定するとイメージ名が予測しやすくなる
+          # 例: COMPOSE_PROJECT_NAME-DOCKER_COMPOSE_SERVICE_NAME:latest
+          docker compose --project-name ${COMPOSE_PROJECT_NAME} --file docker/docker-compose.prod.yml --env-file docker/env/.env.prod build --no-cache ${DOCKER_COMPOSE_SERVICE_NAME}
+
+          # ビルドされたイメージにECR用のタグを付ける
+          # docker-compose v2系では、ビルド後のイメージ名は ${COMPOSE_PROJECT_NAME}-${DOCKER_COMPOSE_SERVICE_NAME} のようになることが多い (ローカルのタグは latest)
+          # Docker Desktop for Mac/Windows や Linux 環境で挙動が異なる場合があるので確認が必要
+          # 最も確実なのは、docker-compose.yml 側で image: myapp:latest のように明示的に指定すること。
+          # ここでは、compose build でビルドされたサービス名 (DOCKER_COMPOSE_SERVICE_NAME) のイメージにタグ付けすると仮定。
+          # compose v1: DOCKER_COMPOSE_SERVICE_NAME (latestタグが付く)
+          # compose v2: COMPOSE_PROJECT_NAME-DOCKER_COMPOSE_SERVICE_NAME (latestタグが付く)
+          # より確実にするには、docker-compose.yml 内のサービス定義で `image: your-image-name:latest` と指定し、その名前を使う。
+          # ここでは compose v2 を想定し、 COMPOSE_PROJECT_NAME-DOCKER_COMPOSE_SERVICE_NAME を元イメージ名とする例を示す。
+          # もし docker-compose.yml 内のサービス `backend` で `image: go/go_4_vocab_keep` と明示されていれば、元の `go/go_4_vocab_keep:latest` で良い。
+          # 仮に、docker-compose.yml で `image: go/go_4_vocab_keep:latest` としているなら、以下のタグ付けはシンプルになる。
+          # docker tag ${DOCKER_COMPOSE_SERVICE_NAME}:latest $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          # または、docker-compose.yml で image: myapp-image と指定した場合
+          # docker tag myapp-image:latest $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          #
+          # ここでは、docker-compose.yml で image: backend-app:latest などと指定していると仮定します。
+          # もし compose ファイルのサービス名が `go_4_vocab_keep` で、image 名が特に指定されていなければ
+          # `docker tag ${COMPOSE_PROJECT_NAME}_go_4_vocab_keep:latest ...` のようになる可能性も。
+          #
+          # **最も推奨されるのは、docker-compose.prod.yml 内でビルドするサービスの image 名を固定することです。**
+          # 例: services: backend: image: mycompany/myapp:latest ...
+          # その場合は、以下のようにタグ付けします。
+          # docker tag mycompany/myapp:latest $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+          # 仮の修正 (docker-compose.prod.yml の backend サービスが `image: go/go_4_vocab_keep:prod` のようにビルドされると仮定)
+          # または、ビルド後のイメージ名が compose のサービス名 (`DOCKER_COMPOSE_SERVICE_NAME`) になると仮定
+          BUILT_IMAGE_NAME="${DOCKER_COMPOSE_SERVICE_NAME}" # compose v1的な挙動、または compose.yml で image: DOCKER_COMPOSE_SERVICE_NAME
+          # もし compose v2 でプロジェクト名がつくなら: BUILT_IMAGE_NAME="${COMPOSE_PROJECT_NAME}-${DOCKER_COMPOSE_SERVICE_NAME}"
+
+          # 実際には docker-compose.prod.yml の内容に合わせてください
+          # ここでは、composeファイル内のサービス名がそのままイメージ名の一部になると仮定します。
+          # 例: `docker-compose.prod.yml` で `services: backend:` と定義
+          docker tag ${DOCKER_COMPOSE_SERVICE_NAME}:latest $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          # もし `docker-compose.prod.yml` が `image: go/go_4_vocab_keep:latest` を生成するなら元のままでOK
+
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
