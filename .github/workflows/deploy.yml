@@ -137,7 +137,7 @@ jobs:
         id: task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
-          task-definition: ./task-definition-template.json
+          task-definition: ./.github/workflows/task-definition-template.json
           container-name: backend
           image: ${{ steps.build-image.outputs.image }}
           # environment-variables を改行区切りの文字列として指定
