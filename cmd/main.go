@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/lmittmann/tint"
+	"github.com/rs/cors"
 
 	"go_4_vocab_keep/internal/config"
 	"go_4_vocab_keep/internal/handlers"
@@ -126,6 +127,19 @@ func main() {
 	r.Use(chimiddleware.RequestID)
 	r.Use(chimiddleware.RealIP)
 	r.Use(middleware.NewStructuredLogger(logger)) // slogを使うカスタムロガーミドルウェア
+
+	// CORS 設定と適用 (設定ファイルから読み込んだ値を使用)
+	corsHandler := cors.New(cors.Options{
+		AllowedOrigins:   config.Cfg.CORS.AllowedOrigins,
+		AllowedMethods:   config.Cfg.CORS.AllowedMethods,
+		AllowedHeaders:   config.Cfg.CORS.AllowedHeaders,
+		ExposedHeaders:   config.Cfg.CORS.ExposedHeaders,
+		AllowCredentials: config.Cfg.CORS.AllowCredentials,
+		MaxAge:           config.Cfg.CORS.MaxAge,
+		Debug:            config.Cfg.CORS.Debug,
+	})
+	r.Use(corsHandler.Handler)
+
 	r.Use(chimiddleware.Recoverer)
 	r.Use(chimiddleware.Timeout(60 * time.Second))
 

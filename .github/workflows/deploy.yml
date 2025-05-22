@@ -148,6 +148,13 @@ jobs:
             APP_LOG_FORMAT=json
             APP_APP_REVIEW_LIMIT=10
             APP_AUTH_ENABLED=true
+            APP_CORS_ALLOWED_ORIGINS="https://impierrot.click" # カンマ区切り文字列
+            APP_CORS_ALLOWED_METHODS="GET,POST,PUT,PATCH,DELETE,OPTIONS" # カンマ区切り文字列
+            APP_CORS_ALLOWED_HEADERS="Accept,Authorization,Content-Type,X-CSRF-Token,X-Tenant-ID" # カンマ区切り文字列
+            APP_CORS_EXPOSED_HEADERS="Link" # カンマ区切り文字列 (単一でもOK)
+            APP_CORS_ALLOW_CREDENTIALS="true" # 真偽値は文字列 "true" or "false"
+            APP_CORS_MAX_AGE="600" # 数値も文字列として
+            APP_CORS_DEBUG="false" # 真偽値
 
       # 6. タスク定義をECSへデプロイ (amazon-ecs-deploy-task-definition@v1)
       - name: Deploy Amazon ECS task definition

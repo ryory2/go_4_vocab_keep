@@ -39,12 +39,24 @@ type AuthConfig struct {
 	Enabled bool `mapstructure:"enabled"`
 }
 
+// CORS設定
+type CORSConfig struct {
+	AllowedOrigins   []string `mapstructure:"allowed_origins"` // 例: ["http://localhost:3000", "https://yourdomain.com"]
+	AllowedMethods   []string `mapstructure:"allowed_methods"` // 例: ["GET", "POST", "PUT"]
+	AllowedHeaders   []string `mapstructure:"allowed_headers"` // 例: ["Content-Type", "Authorization"]
+	ExposedHeaders   []string `mapstructure:"exposed_headers"` // 例: ["Content-Length"]
+	AllowCredentials bool     `mapstructure:"allow_credentials"`
+	MaxAge           int      `mapstructure:"max_age"` // プリフライトリクエストのキャッシュ時間 (秒)
+	Debug            bool     `mapstructure:"debug"`   // CORSデバッグモード
+}
+
 type Config struct {
 	Database DatabaseConfig `mapstructure:"database"`
 	Server   ServerConfig   `mapstructure:"server"`
 	App      AppConfig      `mapstructure:"app"`
 	Auth     AuthConfig     `mapstructure:"auth"`
 	Log      LogConfig      `mapstructure:"log"` // Log設定用のフィールドを追加
+	CORS     CORSConfig     `mapstructure:"cors"`
 }
 
 var Cfg Config
@@ -58,6 +70,14 @@ const (
 	EnvKeyLogFormat      = "APP_LOG_FORMAT"
 	EnvKeyAppReviewLimit = "APP_APP_REVIEW_LIMIT"
 	EnvKeyAuthEnabled    = "APP_AUTH_ENABLED"
+	// CORS関連の環境変数キー (例)
+	EnvKeyCORSAllowedOrigins   = "APP_CORS_ALLOWED_ORIGINS" // カンマ区切り文字列として扱うことが多い
+	EnvKeyCORSAllowedMethods   = "APP_CORS_ALLOWED_METHODS" // カンマ区切り
+	EnvKeyCORSAllowedHeaders   = "APP_CORS_ALLOWED_HEADERS" // カンマ区切り
+	EnvKeyCORSExposedHeaders   = "APP_CORS_EXPOSED_HEADERS" // カンマ区切り
+	EnvKeyCORSAllowCredentials = "APP_CORS_ALLOW_CREDENTIALS"
+	EnvKeyCORSMaxAge           = "APP_CORS_MAX_AGE"
+	EnvKeyCORSDebug            = "APP_CORS_DEBUG"
 )
 
 func LoadConfig(relativePathToSearch string) error {
@@ -103,6 +123,15 @@ func LoadConfig(relativePathToSearch string) error {
 	viper.BindEnv("log.format", EnvKeyLogFormat)
 	viper.BindEnv("app.review_limit", EnvKeyAppReviewLimit)
 	viper.BindEnv("auth.enabled", EnvKeyAuthEnabled)
+
+	// CORS関連の環境変数紐付け
+	viper.BindEnv("cors.allowed_origins", EnvKeyCORSAllowedOrigins)
+	viper.BindEnv("cors.allowed_methods", EnvKeyCORSAllowedMethods)
+	viper.BindEnv("cors.allowed_headers", EnvKeyCORSAllowedHeaders)
+	viper.BindEnv("cors.exposed_headers", EnvKeyCORSExposedHeaders)
+	viper.BindEnv("cors.allow_credentials", EnvKeyCORSAllowCredentials)
+	viper.BindEnv("cors.max_age", EnvKeyCORSMaxAge)
+	viper.BindEnv("cors.debug", EnvKeyCORSDebug)
 
 	// 設定ファイルの読み込み試行
 	log.Println("Attempting to read config file (e.g., config.yaml)...")
@@ -174,15 +203,54 @@ func LoadConfig(relativePathToSearch string) error {
 		// 読み込んだ値を小文字に正規化
 		Cfg.Log.Format = strings.ToLower(Cfg.Log.Format)
 	}
+	// CORSのデフォルト値設定
+	// AllowedOrigins: 環境変数でカンマ区切り文字列で渡された場合、ここでパースするか、
+	// Viperの機能で直接スライスに変換できるか確認 (Viperは文字列からのスライス変換をサポート)
+	// もしCfg.CORS.AllowedOriginsが空ならデフォルトを設定
+	if len(Cfg.CORS.AllowedOrigins) == 0 {
+		log.Println("CORS AllowedOrigins not set, using default ['http://localhost:3000']")
+		Cfg.CORS.AllowedOrigins = []string{"http://localhost:3000"}
+	}
+	if len(Cfg.CORS.AllowedMethods) == 0 {
+		log.Println("CORS AllowedMethods not set, using default ['GET', 'POST', 'OPTIONS']")
+		Cfg.CORS.AllowedMethods = []string{"GET", "POST", "OPTIONS"}
+	}
+	if len(Cfg.CORS.AllowedHeaders) == 0 {
+		log.Println("CORS AllowedHeaders not set, using default ['Content-Type', 'Authorization']")
+		Cfg.CORS.AllowedHeaders = []string{"Content-Type", "Authorization"}
+	}
+	// AllowCredentials はデフォルト false のことが多いが、true が必要なら true に。
+	if !viper.IsSet("cors.allow_credentials") { // viper.IsSet で明示的な設定があったか確認
+		log.Println("CORS AllowCredentials not set, defaulting to true")
+		Cfg.CORS.AllowCredentials = true
+	}
+	if Cfg.CORS.MaxAge <= 0 { // 0以下は無効とみなすか、デフォルト値を設定
+		log.Println("CORS MaxAge not set or invalid, using default 300 seconds")
+		Cfg.CORS.MaxAge = 300 // 5 minutes
+	}
+	// Debug はデフォルト false
+	if !viper.IsSet("cors.debug") {
+		log.Println("CORS Debug not set, defaulting to false")
+		Cfg.CORS.Debug = false
+	}
 
 	// 読み込み完了ログ (LoadConfig内では標準logのまま)
 	log.Println("Config loaded successfully")
-	log.Printf("  Server Port: %s", Cfg.Server.Port)
-	log.Printf("  Review Limit: %d", Cfg.App.ReviewLimit)
-	log.Printf("  Database URL Set: %t", Cfg.Database.URL != "") // URL自体は出力しない
-	log.Printf("  Auth Enabled: %t", Cfg.Auth.Enabled)
-	log.Printf("  Log Level: %s", Cfg.Log.Level)
-	log.Printf("  Log Format: %s", Cfg.Log.Format)
+	log.Printf("    Server Port: %s", Cfg.Server.Port)
+	log.Printf("    Review Limit: %d", Cfg.App.ReviewLimit)
+	log.Printf("    Database URL Set: %t", Cfg.Database.URL != "") // URL自体は出力しない
+	log.Printf("    Auth Enabled: %t", Cfg.Auth.Enabled)
+	log.Printf("    Log Level: %s", Cfg.Log.Level)
+	log.Printf("    Log Format: %s", Cfg.Log.Format)
+	log.Printf("  CORS Config:")
+	log.Printf("    AllowedOrigins:   [%s]", strings.Join(Cfg.CORS.AllowedOrigins, ", "))
+	log.Printf("    AllowedMethods:   [%s]", strings.Join(Cfg.CORS.AllowedMethods, ", "))
+	log.Printf("    AllowedHeaders:   [%s]", strings.Join(Cfg.CORS.AllowedHeaders, ", "))
+	log.Printf("    ExposedHeaders:   [%s]", strings.Join(Cfg.CORS.ExposedHeaders, ", "))
+	log.Printf("    AllowCredentials: %t", Cfg.CORS.AllowCredentials) // bool型は %t
+	log.Printf("    MaxAge (seconds): %d", Cfg.CORS.MaxAge)           // int型は %d
+	log.Printf("    Debug:            %t", Cfg.CORS.Debug)            // bool型は %t
+	log.Println("--------------------------")                         // 他のログセクションとの区切り
 
 	return nil
 }

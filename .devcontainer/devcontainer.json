@@ -46,7 +46,8 @@
 			"extensions": [ // コンテナにインストールされる VS Code 拡張機能。
 				"golang.go", // Go 拡張機能。 拡張機能のIDを指定。
 				"sanaajani.taskrunnercode", // タスクを一覧で表示する拡張機能
-				"ms-azuretools.vscode-docker" // Docker 拡張機能。
+				"ms-azuretools.vscode-docker", // Docker 拡張機能。
+				"42crunch.vscode-openapi" // OpenAPI 拡張機能。
 			]
 		}
 	},
