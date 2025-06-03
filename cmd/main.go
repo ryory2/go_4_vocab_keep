@@ -129,15 +129,16 @@ func main() {
 	r.Use(middleware.NewStructuredLogger(logger)) // slogを使うカスタムロガーミドルウェア
 
 	// CORS 設定と適用 (設定ファイルから読み込んだ値を使用)
-	corsHandler := cors.New(cors.Options{
+	corsOptions := cors.Options{
 		AllowedOrigins:   config.Cfg.CORS.AllowedOrigins,
 		AllowedMethods:   config.Cfg.CORS.AllowedMethods,
 		AllowedHeaders:   config.Cfg.CORS.AllowedHeaders,
 		ExposedHeaders:   config.Cfg.CORS.ExposedHeaders,
 		AllowCredentials: config.Cfg.CORS.AllowCredentials,
 		MaxAge:           config.Cfg.CORS.MaxAge,
-		Debug:            config.Cfg.CORS.Debug,
-	})
+		Debug:            false, // (変更) CORSライブラリのデバッグログを常に無効化
+	}
+	corsHandler := cors.New(corsOptions)
 	r.Use(corsHandler.Handler)
 
 	r.Use(chimiddleware.Recoverer)
