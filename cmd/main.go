@@ -63,8 +63,8 @@ func main() {
 		// --- tint Handler を使用 ---
 		tintOpts := &tint.Options{
 			Level:      logLevel,
-			TimeFormat: time.RFC3339,
-			AddSource:  true,
+			TimeFormat: time.RFC3339, // 2025-06-04T02:05:41+09:00
+			// AddSource: true, // ソース情報を追加する。（2025-06-04T02:05:41+09:00 INF cmd/main.go:212 Server listening port=:8080）
 		}
 		handler = tint.NewHandler(os.Stderr, tintOpts)
 		tempLogger.Info("Using TINT log handler", slog.String("APP_ENV", appEnv))
