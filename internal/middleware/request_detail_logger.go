@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 
 	// "github.com/google/uuid" // 通常はChiがIDを生成・提供するため不要
 	chimiddleware "github.com/go-chi/chi/v5/middleware" // Chiのミドルウェアパッケージをインポート
@@ -43,7 +42,7 @@ func (lrw *loggingDetailResponseWriter) WriteHeader(code int) {
 func RequestDetailLoggingMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			startTime := time.Now()
+			// startTime := time.Now()
 
 			// Chiのヘルパー関数を使ってリクエストIDを取得
 			requestID := chimiddleware.GetReqID(r.Context())
@@ -87,20 +86,20 @@ func RequestDetailLoggingMiddleware(logger *slog.Logger) func(http.Handler) http
 			lrw := newLoggingDetailResponseWriter(w)
 			next.ServeHTTP(lrw, r) // ハンドラー実行
 
-			duration := time.Since(startTime)
+			// duration := time.Since(startTime)
 
 			// ログ属性の準備
 			logAttrs := []slog.Attr{
 				slog.String("request_id", requestID),
 				slog.String("type", "request_detail_log"),
-				slog.Time("timestamp", startTime),
-				slog.String("remote_ip", r.RemoteAddr),
+				// slog.Time("timestamp", startTime),
+				// slog.String("remote_ip", r.RemoteAddr),
 				slog.String("method", r.Method),
 				slog.String("uri", r.RequestURI),
 				slog.String("proto", r.Proto),
 				slog.Int("status_code", lrw.statusCode),
-				slog.Float64("latency_ms", float64(duration.Nanoseconds())/1e6),
-				slog.String("user_agent", r.UserAgent()),
+				// slog.Float64("latency_ms", float64(duration.Nanoseconds())/1e6),
+				// slog.String("user_agent", r.UserAgent()),
 			}
 
 			// リクエストヘッダーの追加 (マスキング処理込み)
