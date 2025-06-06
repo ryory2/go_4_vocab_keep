@@ -8,6 +8,11 @@ echo "==> [run-debug.sh] Executing..."
 echo "==> [run-debug.sh] Attempting to free port 2345..."
 lsof -t -i:2345 | xargs kill -9 || true
 
+# ポート8080を解放する
+# プロセスが見つからなくてもエラーにならないように `|| true` を付加
+echo "==> [run-debug.sh] Attempting to free port 8080..."
+lsof -t -i:8080 | xargs kill -9 || true
+
 # 念のため少し待つ (任意)
 # sleep 0.1
 
