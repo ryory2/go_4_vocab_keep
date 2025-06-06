@@ -114,7 +114,7 @@ func main() {
 	reviewService := service.NewReviewService(db, progressRepo, config.Cfg, logger)
 
 	// Authenticator を作成
-	tenantAuthenticator := middleware.NewServiceTenantAuthenticator(tenantService)
+	tenantAuthenticator := middleware.NewServiceTenantAuthenticator(tenantService, logger)
 
 	tenantHandler := handlers.NewTenantHandler(tenantService, logger)
 	wordHandler := handlers.NewWordHandler(wordService, logger)
@@ -158,7 +158,7 @@ func main() {
 		r.Group(func(r chi.Router) {
 			// 強化したテナント認証ミドルウェアを適用
 			slog.Info("Applying production authentication middleware")
-			r.Use(middleware.TenantAuthMiddleware(tenantAuthenticator))
+			r.Use(middleware.TenantAuthMiddleware(tenantAuthenticator, logger))
 
 			// Word routes
 			r.Route("/words", func(r chi.Router) {

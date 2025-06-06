@@ -46,15 +46,6 @@ func NewWordService(db *gorm.DB, wordRepo repository.WordRepository, progRepo re
 }
 
 func (s *wordService) PostWord(ctx context.Context, tenantID uuid.UUID, req *model.PostWordRequest) (*model.Word, error) {
-	if req.Term == "" || req.Definition == "" {
-		// slog で警告ログ (クライアント入力エラー)
-		s.logger.Warn("単語作成リクエスト：TermまたはDefinitionが空です",
-			slog.String("tenant_id", tenantID.String()),
-			slog.Any("request", req), // 注意: リクエスト内容に機密情報がないか確認
-		)
-		return nil, model.ErrInvalidInput
-	}
-
 	var createdWord *model.Word
 	operation := "PostWord" // ログ用の操作名
 
@@ -69,7 +60,7 @@ func (s *wordService) PostWord(ctx context.Context, tenantID uuid.UUID, req *mod
 				slog.String("tenant_id", tenantID.String()),
 				slog.String("term", req.Term),
 			)
-			return model.ErrInternalServer
+			return model.NewAppError("INTERNAL_SERVER_ERROR", "サーバー内部でエラーが発生しました。", "", model.ErrInternalServer)
 		}
 		if exists {
 			// slog で情報ログ (ビジネスロジックによるエラー)
@@ -78,7 +69,13 @@ func (s *wordService) PostWord(ctx context.Context, tenantID uuid.UUID, req *mod
 				slog.String("tenant_id", tenantID.String()),
 				slog.String("term", req.Term),
 			)
-			return model.ErrConflict // 重複エラー
+			// ErrConflictの代わりに、詳細情報を持つAppErrorを返す
+			return model.NewAppError(
+				"DUPLICATE_TERM", // エラーコード
+				"その単語は既に使用されています。", // クライアントに表示するメッセージ
+				"term",            // エラーが発生したフィールド
+				model.ErrConflict, // 根本のエラー種別
+			)
 		}
 
 		// 2. 単語を作成
@@ -96,57 +93,15 @@ func (s *wordService) PostWord(ctx context.Context, tenantID uuid.UUID, req *mod
 				slog.String("tenant_id", tenantID.String()),
 				slog.String("word_id", word.WordID.String()), // 生成したIDも記録
 			)
-			return model.ErrInternalServer
+			return model.NewAppError("INTERNAL_SERVER_ERROR", "サーバー内部でエラーが発生しました。", "", model.ErrInternalServer)
 		}
-
-		// // 3. 学習進捗を作成
-		// progress := &model.LearningProgress{
-		// 	ProgressID:     uuid.New(),
-		// 	TenantID:       tenantID,
-		// 	WordID:         word.WordID,
-		// 	Level:          model.Level1,
-		// 	NextReviewDate: time.Now().AddDate(0, 0, 1),
-		// }
-		// if err := s.progRepo.Create(ctx, tx, progress); err != nil {
-		// 	// slog でエラーログ
-		// 	s.logger.Error("トランザクション内での学習進捗作成中にエラー発生",
-		// 		slog.Any("error", err),
-		// 		slog.String("operation", operation),
-		// 		slog.String("tenant_id", tenantID.String()),
-		// 		slog.String("word_id", word.WordID.String()),
-		// 		slog.String("progress_id", progress.ProgressID.String()),
-		// 	)
-
-		// 	if errors.Is(err, gorm.ErrDuplicatedKey) { // 制約違反の場合
-		// 		s.logger.Warn("学習進捗作成中に重複エラー（または制約違反）が発生しました",
-		// 			slog.Any("error", err),
-		// 			slog.String("operation", operation),
-		// 			slog.String("tenant_id", tenantID.String()),
-		// 			slog.String("word_id", word.WordID.String()),
-		// 			slog.String("progress_id", progress.ProgressID.String()),
-		// 		)
-		// 		return model.ErrConflict
-		// 	}
-		// 	return model.ErrInternalServer
-		// }
 
 		createdWord = word
 		return nil // コミット
 	})
 
 	if err != nil {
-		// トランザクション内で返されたエラー
-		if errors.Is(err, model.ErrConflict) || errors.Is(err, model.ErrInvalidInput) {
-			// 既にログされているか、ビジネスロジックエラーなので追加ログ不要
-			return nil, err
-		}
-		// slog でトランザクション全体のエラーログ
-		s.logger.Error("単語作成トランザクションが失敗しました",
-			slog.Any("error", err),
-			slog.String("operation", operation),
-			slog.String("tenant_id", tenantID.String()),
-		)
-		return nil, model.ErrInternalServer
+		return nil, err
 	}
 
 	// slog で成功ログ

@@ -15,6 +15,7 @@ import (
 
 	// "go_4_vocab_keep/internal/service" は、ビジネスロジックを担当するサービス層のパッケージです。
 	// TenantHandler はこのパッケージの TenantService を利用します。
+	"go_4_vocab_keep/internal/model"
 	"go_4_vocab_keep/internal/service" // プロジェクト名修正
 	// "go_4_vocab_keep/internal/webutil" は、Web関連のユーティリティ関数 (JSON処理、レスポンス生成など) を
 	// 提供する、このプロジェクト固有のパッケージです。
@@ -123,115 +124,50 @@ type CreateTenantRequest struct {
 /**
  * @method CreateTenant
  * @brief HTTP POSTリクエストを受け取り、新しいテナントを作成します。 (ハンドラ関数)
- *        対応するエンドポイントは通常 `POST /api/v1/tenants` のようなパスになります。
- *
- * このメソッドは `TenantHandler` 型に紐付けられています (レシーバ `h *TenantHandler` があるため)。
- * Goではこのように構造体にメソッドを定義します。
- *
- * @receiver h *TenantHandler: このメソッドを呼び出す TenantHandler インスタンスへのポインタ。
- *                              メソッド内で `h.service` のようにフィールドにアクセスできます。
- * @param w http.ResponseWriter: HTTPレスポンスを書き込むためのインターフェース。
- *                               ステータスコードの設定やレスポンスボディの書き込みに使います。
- * @param r *http.Request:       受信したHTTPリクエストの情報を持つ構造体へのポインタ。
- *                               リクエストヘッダー、ボディ、URLパラメータなどを取得できます。
- *
- * @example (Webフレームワーク chi でのルーティング設定例)
- * r.Post("/tenants", tenantHandler.CreateTenant)
  */
 func (h *TenantHandler) CreateTenant(w http.ResponseWriter, r *http.Request) {
-	logger := h.logger
+	logger := h.logger.With(slog.String("handler", "CreateTenant")) // ログにコンテキスト追加
+
 	// --- リクエストボディのデコード ---
-	// `var req CreateTenantRequest` で、リクエストボディのデータを格納するための
-	// CreateTenantRequest型の変数 `req` を宣言します。
 	var req CreateTenantRequest
-
-	// `webutil.DecodeJSONBody(r, &req)` を呼び出します。
-	// - `r`: HTTPリクエスト情報 (ここからリクエストボディを読み取る)
-	// - `&req`: デコードしたJSONデータを格納する変数 `req` のメモリアドレス (ポインタ)
-	// この関数は、リクエストボディを読み取り、JSONとして解釈し、
-	// その結果を `req` 変数に書き込みます。
-	// Goでは、関数が処理の成否を示すためにエラー (`error` 型) を返すのが一般的です。
-	// `if err := ...; err != nil` は、関数呼び出しとそのエラーチェックを簡潔に書くためのGoの慣用句です。
 	if err := webutil.DecodeJSONBody(r, &req); err != nil {
-		// デコードに失敗した場合 (例: JSON形式が不正、データ型が違うなど)。
-
-		// `webutil.RespondWithError` を呼び出して、クライアントにエラーレスポンスを返します。
-		// - `w`: レスポンスを書き込む対象。
-		// - `http.StatusBadRequest`: HTTPステータスコード 400 (Bad Request) を示す定数。
-		// - `"Invalid request body: " + err.Error()`: エラーメッセージ。`err.Error()` でエラーの詳細を取得。
 		logger.Warn("Failed to decode request body", slog.String("error", err.Error()))
-		webutil.RespondWithError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
-		// `return` でこの関数の処理を中断します。これ以降の処理は実行されません。
+		// AppErrorを生成して一元的なエラーハンドラに渡す
+		appErr := model.NewAppError("INVALID_REQUEST_BODY", "リクエストボディの形式が正しくありません。", "", model.ErrInvalidInput)
+		webutil.HandleError(w, appErr)
 		return
 	}
 
-	// --- バリデーション (go-playground/validator を使用) ---
-	// validate.Struct(req) を呼び出して、req インスタンスのタグに基づきバリデーションを実行
-	err := validate.Struct(req)
-	if err != nil {
-		// バリデーションエラーが発生した場合
+	// --- バリデーション ---
+	if err := validate.Struct(req); err != nil {
 		var validationErrors validator.ValidationErrors
-		// エラーがバリデーションエラーの型かを確認 (errors.As を使うのが推奨)
 		if errors.As(err, &validationErrors) {
-			logger.Warn(
-				"Validation failed for CreateTenant request",
-				slog.Any("validation_errors", validationErrors.Error()),
-				slog.Any("request_body", req),
-			)
-			errorMsg := "Validation failed: " + validationErrors.Error()
-			webutil.RespondWithError(w, http.StatusBadRequest, errorMsg)
+			// バリデーションエラーの場合、webutilのヘルパーでAppErrorを生成
+			logger.Warn("Validation failed for request", slog.Any("errors", validationErrors.Error()), slog.Any("request", req))
+			appErr := webutil.NewValidationErrorResponse(validationErrors)
+			webutil.HandleError(w, appErr)
 		} else {
-			logger.Error(
-				"Unexpected error during validation",
-				slog.Any("error", err),
-				slog.Any("request_body", req),
-			)
-			webutil.RespondWithError(w, http.StatusInternalServerError, "Error validating request") // 500 Internal Server Error
+			// バリデーションライブラリ自体に予期せぬエラーが発生した場合
+			logger.Error("Unexpected error during validation", slog.Any("error", err), slog.Any("request", req))
+			webutil.HandleError(w, err) // 予期せぬエラーとして処理
 		}
-		return // 処理を中断
+		return
 	}
-	// --- バリデーションここまで ---
-
-	// バリデーションが成功した場合のみ、以下の処理に進む
-
-	// (削除) 以前の手動バリデーションは不要になる
-	// if req.Name == "" { ... }
 
 	// --- ビジネスロジックの呼び出し (Service層) ---
-	// `h.service.CreateTenant` メソッドを呼び出して、実際にテナントを作成する処理を依頼します。
-	// - `r.Context()`: リクエストに関連付けられたコンテキスト(Context)を取得します。
-	//   コンテキストは、リクエストのタイムアウトやキャンセル、リクエスト固有の値 (認証情報など) を
-	//   伝搬させるために使われます。サービス層やリポジトリ層まで引き回されることが多いです。
-	// - `req.Name`: リクエストから取得したテナント名。
-	// このメソッドは、作成されたテナント情報 (`*model.Tenant` 型などを想定) と、
-	// 処理中に発生したエラー (`error` 型) を返します。
 	tenant, err := h.service.CreateTenant(r.Context(), req.Name)
-	// ここでも `err != nil` でエラーが発生したかどうかをチェックします。
 	if err != nil {
-		// --- エラーレスポンスの生成 ---
-		// `webutil.MapErrorToStatusCode(err)` を呼び出して、発生したエラーの種類に応じて
-		// 適切なHTTPステータスコード (例: 既に存在するなら 409 Conflict) を決定します。
-		statusCode := webutil.MapErrorToStatusCode(err) // エラーに応じたステータスコード取得
-
+		// サービス層で発生したエラーをログに記録し、一元的なハンドラに渡す
 		logger.Error(
 			"Failed to create tenant in service",
-			slog.Any("error", err), // エラーオブジェクト全体 [8, 17]
-			slog.Int("status_code", statusCode),
-			slog.String("requested_name", req.Name), // どのリクエストで失敗したかのコンテキスト [6, 14]
+			slog.Any("error", err),
+			slog.String("requested_name", req.Name),
 		)
-
-		// `webutil.RespondWithError` で、決定したステータスコードとエラーメッセージをクライアントに返します。
-		webutil.RespondWithError(w, statusCode, err.Error()) // エラーメッセージを返す
-		// 処理を中断します。
+		webutil.HandleError(w, err)
 		return
 	}
 
 	// --- 正常レスポンスの生成 ---
-	// エラーが発生しなかった場合 (テナント作成成功)。
-	// `webutil.RespondWithJSON` を呼び出して、クライアントに成功レスポンスを返します。
-	// - `w`: レスポンスを書き込む対象。
-	// - `http.StatusCreated`: HTTPステータスコード 201 (Created) を示す定数。リソース作成成功時に使われます。
-	// - `tenant`: サービス層から返された、作成されたテナントの情報。
-	// この関数は、`tenant` オブジェクトをJSON形式に変換し、適切なヘッダーと共にレスポンスボディとして書き込みます。
-	webutil.RespondWithJSON(w, http.StatusCreated, tenant) // 作成されたテナント情報を返す
-} // CreateTenant メソッドの終わり
+	logger.Info("Tenant created successfully", slog.String("tenant_id", tenant.TenantID.String()))
+	webutil.RespondWithJSON(w, http.StatusCreated, tenant)
+}
