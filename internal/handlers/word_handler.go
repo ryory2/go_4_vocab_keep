@@ -229,10 +229,31 @@ func (h *WordHandler) PatchWord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Term == nil && req.Definition == nil {
-		logger.Warn("PatchWord called with no fields provided for update", slog.Any("request", req))
-		appErr := model.NewAppError("VALIDATION_ERROR", "更新するフィールドが指定されていません。", "", model.ErrInvalidInput)
-		webutil.HandleError(w, logger, appErr)
+	// --- ★ここを validator を使ったバリデーションに置き換え ---
+	if err := webutil.Validator.Struct(req); err != nil {
+		var validationErrors validator.ValidationErrors
+		// エラーがバリデーションエラーか判定
+		if errors.As(err, &validationErrors) {
+			logger.Warn("Validation failed", slog.Any("errors", validationErrors.Error()), slog.Any("request", req))
+
+			// 最初のエラーを代表としてクライアントに返す
+			firstErr := validationErrors[0]
+			// 日本語メッセージに翻訳
+			translatedMsg := firstErr.Translate(webutil.Trans)
+
+			// 詳細なエラー情報を AppError として生成
+			appErr := model.NewAppError(
+				"VALIDATION_ERROR",
+				translatedMsg,
+				firstErr.Field(), // エラーが発生したフィールド (jsonタグ名)
+				model.ErrInvalidInput,
+			)
+			webutil.HandleError(w, logger, appErr)
+		} else {
+			// バリデーションライブラリ自体のエラーなど、予期せぬエラー
+			logger.Error("Unexpected error during validation", slog.Any("error", err))
+			webutil.HandleError(w, logger, err)
+		}
 		return
 	}
 

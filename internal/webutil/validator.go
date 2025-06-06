@@ -82,18 +82,35 @@ func init() {
 	registerTranslation("required", "{0}は必須項目です。")
 	// 例: "email" タグのメッセージ
 	registerTranslation("email", "{0}は有効なメールアドレス形式ではありません。")
-	// 例: min タグのメッセージ
+	// --- min タグの修正 ---
 	Validator.RegisterTranslation("min", Trans, func(ut ut.Translator) error {
+		// メッセージテンプレートの登録
 		return ut.Add("min", "{0}は{1}文字以上で入力してください。", true)
 	}, func(ut ut.Translator, fe validator.FieldError) string {
-		t, _ := ut.T("min", fe.Field(), fe.Param())
+		// メッセージ生成ロジック
+		fieldName := fe.Field()
+		translatedFieldName, ok := fieldNameTranslations[fieldName]
+		if !ok {
+			translatedFieldName = fieldName // 見つからなければ元の名前
+		}
+		// 翻訳されたフィールド名を使ってメッセージを生成
+		t, _ := ut.T("min", translatedFieldName, fe.Param())
 		return t
 	})
-	// 例: max タグのメッセージ
+
+	// --- max タグの修正 ---
 	Validator.RegisterTranslation("max", Trans, func(ut ut.Translator) error {
+		// メッセージテンプレートの登録
 		return ut.Add("max", "{0}は{1}文字以下で入力してください。", true)
 	}, func(ut ut.Translator, fe validator.FieldError) string {
-		t, _ := ut.T("max", fe.Field(), fe.Param())
+		// メッセージ生成ロジック
+		fieldName := fe.Field()
+		translatedFieldName, ok := fieldNameTranslations[fieldName]
+		if !ok {
+			translatedFieldName = fieldName // 見つからなければ元の名前
+		}
+		// 翻訳されたフィールド名を使ってメッセージを生成
+		t, _ := ut.T("max", translatedFieldName, fe.Param())
 		return t
 	})
 }

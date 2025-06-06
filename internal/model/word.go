@@ -40,6 +40,6 @@ type PutWordRequest struct {
 
 // 単語更新（部分）リクエストDTO
 type PatchWordRequest struct {
-	Term       *string `json:"term,omitempty"` // omitempty を付けるとJSONでnilの場合省略される
-	Definition *string `json:"definition,omitempty"`
+	Term       *string `json:"term,omitempty" validate:"omitempty,min=1"` // omitempty を付けるとJSONでnilの場合省略される
+	Definition *string `json:"definition,omitempty" validate:"omitempty,min=1"`
 }
