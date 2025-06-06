@@ -55,7 +55,7 @@ tmp_dir = "./cmd/tmp"
   follow_symlink = false
   # true の場合、シンボリックリンク先のファイルの変更も監視します。
 
-  full_bin = "dlv exec --headless --listen=:2345 --accept-multiclient --continue ./cmd/tmp/main"
+  full_bin = "./cmd/run-debug.sh"
   # デバッガー (Delve) を使用してアプリケーションを実行する際のコマンド。
   # `./tmp/main` は `/app/tmp/main` を指します。デバッグ実行しない場合は通常無視されます。
 
