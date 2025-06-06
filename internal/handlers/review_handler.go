@@ -40,7 +40,7 @@ func (h *ReviewHandler) GetReviewWords(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		logger.Warn("Unauthorized access attempt", slog.String("error", err.Error()))
 		appErr := model.NewAppError("UNAUTHORIZED", "認証情報が見つかりません。", "", model.ErrForbidden)
-		webutil.HandleError(w, appErr)
+		webutil.HandleError(w, logger, appErr)
 		return
 	}
 	logger = logger.With(slog.String("tenant_id", tenantID.String()))
@@ -48,7 +48,7 @@ func (h *ReviewHandler) GetReviewWords(w http.ResponseWriter, r *http.Request) {
 	reviewWords, err := h.service.GetReviewWords(r.Context(), tenantID)
 	if err != nil {
 		logger.Error("Error getting review words from service", slog.Any("error", err))
-		webutil.HandleError(w, err)
+		webutil.HandleError(w, logger, err)
 		return
 	}
 
@@ -56,7 +56,7 @@ func (h *ReviewHandler) GetReviewWords(w http.ResponseWriter, r *http.Request) {
 		reviewWords = []*model.ReviewWordResponse{}
 	}
 	logger.Info("Review words retrieved successfully", slog.Int("count", len(reviewWords)))
-	webutil.RespondWithJSON(w, http.StatusOK, reviewWords)
+	webutil.RespondWithJSON(w, http.StatusOK, reviewWords, logger)
 }
 
 func (h *ReviewHandler) UpsertLearningProgressBasedOnReview(w http.ResponseWriter, r *http.Request) {
@@ -66,7 +66,7 @@ func (h *ReviewHandler) UpsertLearningProgressBasedOnReview(w http.ResponseWrite
 	if err != nil {
 		logger.Warn("Unauthorized access attempt", slog.String("error", err.Error()))
 		appErr := model.NewAppError("UNAUTHORIZED", "認証情報が見つかりません。", "", model.ErrForbidden)
-		webutil.HandleError(w, appErr)
+		webutil.HandleError(w, logger, appErr)
 		return
 	}
 	logger = logger.With(slog.String("tenant_id", tenantID.String()))
@@ -76,7 +76,7 @@ func (h *ReviewHandler) UpsertLearningProgressBasedOnReview(w http.ResponseWrite
 	if err != nil {
 		logger.Warn("Invalid word ID format in URL", slog.String("word_id_str", wordIDStr), slog.String("error", err.Error()))
 		appErr := model.NewAppError("INVALID_URL_PARAM", "word_idの形式が正しくありません。", "word_id", model.ErrInvalidInput)
-		webutil.HandleError(w, appErr)
+		webutil.HandleError(w, logger, appErr)
 		return
 	}
 	logger = logger.With(slog.String("word_id", wordID.String()))
@@ -85,7 +85,7 @@ func (h *ReviewHandler) UpsertLearningProgressBasedOnReview(w http.ResponseWrite
 	if err := webutil.DecodeJSONBody(r, &req); err != nil {
 		logger.Warn("Failed to decode request body", slog.String("error", err.Error()))
 		appErr := model.NewAppError("INVALID_REQUEST_BODY", "リクエストボディの形式が正しくありません。", "", model.ErrInvalidInput)
-		webutil.HandleError(w, appErr)
+		webutil.HandleError(w, logger, appErr)
 		return
 	}
 
@@ -96,7 +96,7 @@ func (h *ReviewHandler) UpsertLearningProgressBasedOnReview(w http.ResponseWrite
 		} else {
 			logger.Error("Error submitting review result in service")
 		}
-		webutil.HandleError(w, err)
+		webutil.HandleError(w, logger, err)
 		return
 	}
 

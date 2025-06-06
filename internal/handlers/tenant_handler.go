@@ -17,6 +17,7 @@ import (
 	// TenantHandler はこのパッケージの TenantService を利用します。
 	"go_4_vocab_keep/internal/model"
 	"go_4_vocab_keep/internal/service" // プロジェクト名修正
+
 	// "go_4_vocab_keep/internal/webutil" は、Web関連のユーティリティ関数 (JSON処理、レスポンス生成など) を
 	// 提供する、このプロジェクト固有のパッケージです。
 	"go_4_vocab_keep/internal/webutil" // プロジェクト名修正
@@ -134,7 +135,7 @@ func (h *TenantHandler) CreateTenant(w http.ResponseWriter, r *http.Request) {
 		logger.Warn("Failed to decode request body", slog.String("error", err.Error()))
 		// AppErrorを生成して一元的なエラーハンドラに渡す
 		appErr := model.NewAppError("INVALID_REQUEST_BODY", "リクエストボディの形式が正しくありません。", "", model.ErrInvalidInput)
-		webutil.HandleError(w, appErr)
+		webutil.HandleError(w, logger, appErr)
 		return
 	}
 
@@ -145,11 +146,11 @@ func (h *TenantHandler) CreateTenant(w http.ResponseWriter, r *http.Request) {
 			// バリデーションエラーの場合、webutilのヘルパーでAppErrorを生成
 			logger.Warn("Validation failed for request", slog.Any("errors", validationErrors.Error()), slog.Any("request", req))
 			appErr := webutil.NewValidationErrorResponse(validationErrors)
-			webutil.HandleError(w, appErr)
+			webutil.HandleError(w, logger, appErr)
 		} else {
 			// バリデーションライブラリ自体に予期せぬエラーが発生した場合
 			logger.Error("Unexpected error during validation", slog.Any("error", err), slog.Any("request", req))
-			webutil.HandleError(w, err) // 予期せぬエラーとして処理
+			webutil.HandleError(w, logger, err) // 予期せぬエラーとして処理
 		}
 		return
 	}
@@ -163,11 +164,11 @@ func (h *TenantHandler) CreateTenant(w http.ResponseWriter, r *http.Request) {
 			slog.Any("error", err),
 			slog.String("requested_name", req.Name),
 		)
-		webutil.HandleError(w, err)
+		webutil.HandleError(w, logger, err)
 		return
 	}
 
 	// --- 正常レスポンスの生成 ---
 	logger.Info("Tenant created successfully", slog.String("tenant_id", tenant.TenantID.String()))
-	webutil.RespondWithJSON(w, http.StatusCreated, tenant)
+	webutil.RespondWithJSON(w, http.StatusCreated, tenant, logger)
 }

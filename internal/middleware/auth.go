@@ -63,7 +63,7 @@ func TenantAuthMiddleware(auth TenantAuthenticator, logger *slog.Logger) func(ht
 			if tenantIDStr == "" {
 				logger.Warn("Authentication failed: X-Tenant-ID header missing")
 				appErr := model.NewAppError("MISSING_TENANT_HEADER", "X-Tenant-IDヘッダーが必要です。", "X-Tenant-ID", model.ErrForbidden)
-				webutil.HandleError(w, appErr)
+				webutil.HandleError(w, logger, appErr)
 				return
 			}
 
@@ -71,7 +71,7 @@ func TenantAuthMiddleware(auth TenantAuthenticator, logger *slog.Logger) func(ht
 			if err != nil {
 				logger.Warn("Authentication failed: Invalid X-Tenant-ID format", "X-Tenant-ID", tenantIDStr)
 				appErr := model.NewAppError("INVALID_TENANT_ID_FORMAT", "X-Tenant-IDの形式が正しくありません。", "X-Tenant-ID", model.ErrForbidden)
-				webutil.HandleError(w, appErr)
+				webutil.HandleError(w, logger, appErr)
 				return
 			}
 
@@ -79,13 +79,13 @@ func TenantAuthMiddleware(auth TenantAuthenticator, logger *slog.Logger) func(ht
 			if err != nil {
 				// 認証処理中の内部エラー (DBエラーなど)
 				// Authenticateメソッド内で既にログは出力されているので、ここでは不要
-				webutil.HandleError(w, err) // 内部エラーとして処理を委譲
+				webutil.HandleError(w, logger, err) // 内部エラーとして処理を委譲
 				return
 			}
 			if !isValid {
 				logger.Warn("Forbidden: Tenant not found or inactive", slog.String("tenant_id", tenantID.String()))
 				appErr := model.NewAppError("INVALID_TENANT", "指定されたテナントは無効、または存在しません。", "X-Tenant-ID", model.ErrTenantNotFound)
-				webutil.HandleError(w, appErr)
+				webutil.HandleError(w, logger, appErr)
 				return
 			}
 

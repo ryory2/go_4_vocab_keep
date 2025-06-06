@@ -127,10 +127,7 @@ func main() {
 	// 基本的なアクセスログ (メソッド、パス、ステータス等)
 	r.Use(chimiddleware.RequestID)
 	r.Use(chimiddleware.RealIP)
-	r.Use(middleware.NewStructuredLogger(logger)) // slogを使うカスタムロガーミドルウェア
-	// リクエスト詳細ログ (ヘッダー、ボディなど)
-	r.Use(middleware.RequestDetailLoggingMiddleware(logger))
-	r.Use(middleware.ResponseDetailLoggingMiddleware(logger))
+	r.Use(middleware.LoggingMiddleware(logger))
 
 	// CORS 設定と適用 (設定ファイルから読み込んだ値を使用)
 	corsOptions := cors.Options{

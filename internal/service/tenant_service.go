@@ -26,7 +26,11 @@ type tenantService struct {
 }
 
 func NewTenantService(db *gorm.DB, repo repository.TenantRepository, logger *slog.Logger) TenantService {
-	return &tenantService{db: db, tenantRepo: repo, logger: logger}
+	return &tenantService{
+		db:         db,
+		tenantRepo: repo,
+		logger:     logger,
+	}
 }
 
 func (s *tenantService) CreateTenant(ctx context.Context, name string) (*model.Tenant, error) {
@@ -86,7 +90,12 @@ func (s *tenantService) CreateTenant(ctx context.Context, name string) (*model.T
 
 // GetTenant は指定されたIDのテナントを取得します (認証用などに利用)
 func (s *tenantService) GetTenant(ctx context.Context, tenantID uuid.UUID) (*model.Tenant, error) {
-	s.logger.DebugContext(ctx, "Getting tenant", slog.String("tenant_id", tenantID.String()))
+	operation := "GetTenant" // ログ用の操作名
+	s.logger.Debug("テナント取得",
+		slog.String("operation", operation),
+		slog.String("tenant_id", tenantID.String()),
+	)
+	// 	s.logger.DebugContext(ctx, "Getting tenant", slog.String("tenant_id", tenantID.String()))
 	tenant, err := s.tenantRepo.FindByID(ctx, s.db, tenantID)
 	if err != nil {
 		if errors.Is(err, model.ErrNotFound) {

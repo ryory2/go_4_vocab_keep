@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -16,23 +16,20 @@ import (
 
 // HandleError はエラーを解釈し、適切なJSONエラーレスポンスを返します。
 // これがアプリケーションのエラーハンドリングの中心となります。
-func HandleError(w http.ResponseWriter, err error) {
-	// エラーの根本原因に基づいてHTTPステータスコードを決定
-	statusCode := MapErrorToStatusCode(err)
+func HandleError(w http.ResponseWriter, logger *slog.Logger, err error) {
+	if logger == nil {
+		logger = slog.Default() // フォールバック
+	}
 
+	statusCode := MapErrorToStatusCode(err)
 	var errResp model.APIErrorResponse
 	var appErr *model.AppError
 
-	// エラーがカスタムエラー型 AppError かどうかを判定
 	if errors.As(err, &appErr) {
-		// AppError の場合、その詳細情報をレスポンスとして使用
 		errResp = model.APIErrorResponse{Error: appErr.Detail}
 	} else {
-		// AppError ではない、予期せぬエラーの場合
-		// ログには詳細なエラーを出力
-		log.Printf("Unhandled error: %+v", err)
-
-		// クライアントには汎用的なエラーメッセージを返す
+		// ★受け取ったロガーでエラーを出力
+		logger.Error("Unhandled error occurred", slog.Any("error", err))
 		errResp = model.APIErrorResponse{
 			Error: model.ErrorDetail{
 				Code:    "INTERNAL_SERVER_ERROR",
@@ -41,7 +38,7 @@ func HandleError(w http.ResponseWriter, err error) {
 		}
 	}
 
-	RespondWithJSON(w, statusCode, errResp)
+	RespondWithJSON(w, statusCode, errResp, logger)
 }
 
 // MapErrorToStatusCode はアプリケーションエラーをHTTPステータスコードにマッピングします
@@ -69,11 +66,14 @@ func MapErrorToStatusCode(err error) int {
 }
 
 // RespondWithJSON はJSONレスポンスを返します
-// (この関数もそのまま利用します)
-func RespondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
+func RespondWithJSON(w http.ResponseWriter, code int, payload interface{}, logger *slog.Logger) {
+	if logger == nil {
+		logger = slog.Default() // フォールバック
+	}
 	response, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("Error marshaling JSON response: %v", err)
+		// ★受け取ったロガーでエラーを出力
+		logger.Error("Error marshaling JSON response", slog.Any("error", err))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(`{"error":{"code":"INTERNAL_SERVER_ERROR", "message":"レスポンス生成中にエラーが発生しました。"}}`))
