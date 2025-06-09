@@ -13,5 +13,5 @@ type ReviewWordResponse struct {
 
 // SubmitReviewRequest は復習結果送信リクエストのDTO
 type SubmitReviewRequest struct {
-	IsCorrect bool `json:"is_correct"`
+	IsCorrect *bool `json:"is_correct" validate:"required"`
 }

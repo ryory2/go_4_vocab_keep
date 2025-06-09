@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog" // slog パッケージをインポート
+	"time"
 
 	"go_4_vocab_keep/internal/model"
 	"go_4_vocab_keep/internal/repository"
@@ -96,11 +97,32 @@ func (s *wordService) PostWord(ctx context.Context, tenantID uuid.UUID, req *mod
 			return model.NewAppError("INTERNAL_SERVER_ERROR", "サーバー内部でエラーが発生しました。", "", model.ErrInternalServer)
 		}
 
+		progress := &model.LearningProgress{
+			ProgressID:     uuid.New(),
+			TenantID:       tenantID,
+			WordID:         word.WordID,
+			Level:          model.Level1, // または Level 1
+			NextReviewDate: time.Now(),   // ★ すぐに復習対象になるように今日の日付を設定
+		}
+		if err := s.progRepo.Create(ctx, tx, progress); err != nil {
+			s.logger.Error("初期学習進捗の作成に失敗", "error", err, "word_id", word.WordID)
+			// このエラーは致命的なのでトランザクションをロールバックさせる
+			return model.NewAppError("INTERNAL_SERVER_ERROR", "サーバー内部でエラーが発生しました。", "", model.ErrInternalServer)
+		}
+
 		createdWord = word
 		return nil // コミット
 	})
 
 	if err != nil {
+		// トランザクション関数内でAppErrorにラップされているはずだが、
+		// 予期せぬエラー（gormの接続断など）の可能性を考慮
+		var appErr *model.AppError
+		if !errors.As(err, &appErr) {
+			s.logger.Error("単語作成トランザクションが予期せぬエラーで失敗", "error", err)
+			return nil, model.NewAppError("INTERNAL_SERVER_ERROR", "サーバー内部でエラーが発生しました。", "", model.ErrInternalServer)
+		}
+		// AppErrorであればそのまま返す
 		return nil, err
 	}
 

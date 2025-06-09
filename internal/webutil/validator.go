@@ -22,6 +22,7 @@ var fieldNameTranslations = map[string]string{
 	"term":       "単語",
 	"definition": "意味",
 	"email":      "メールアドレス",
+	"is_correct": "回答の正誤",
 	// ... 他のフィールドもここに追加 ...
 }
 

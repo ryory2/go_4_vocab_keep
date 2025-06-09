@@ -12,6 +12,7 @@ import (
 	"go_4_vocab_keep/internal/webutil"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 )
 
@@ -89,7 +90,34 @@ func (h *ReviewHandler) UpsertLearningProgressBasedOnReview(w http.ResponseWrite
 		return
 	}
 
-	err = h.service.UpsertLearningProgressBasedOnReview(r.Context(), tenantID, wordID, req.IsCorrect)
+	if err := webutil.Validator.Struct(req); err != nil {
+		var validationErrors validator.ValidationErrors
+		// エラーがバリデーションエラーか判定
+		if errors.As(err, &validationErrors) {
+			logger.Warn("Validation failed", slog.Any("errors", validationErrors.Error()), slog.Any("request", req))
+
+			// 最初のエラーを代表としてクライアントに返す
+			firstErr := validationErrors[0]
+			// 日本語メッセージに翻訳
+			translatedMsg := firstErr.Translate(webutil.Trans)
+
+			// 詳細なエラー情報を AppError として生成
+			appErr := model.NewAppError(
+				"VALIDATION_ERROR",
+				translatedMsg,
+				firstErr.Field(), // エラーが発生したフィールド (jsonタグ名)
+				model.ErrInvalidInput,
+			)
+			webutil.HandleError(w, logger, appErr)
+		} else {
+			// バリデーションライブラリ自体のエラーなど、予期せぬエラー
+			logger.Error("Unexpected error during validation", slog.Any("error", err))
+			webutil.HandleError(w, logger, err)
+		}
+		return
+	}
+
+	err = h.service.UpsertLearningProgressBasedOnReview(r.Context(), tenantID, wordID, *req.IsCorrect)
 	if err != nil {
 		if errors.Is(err, model.ErrNotFound) {
 			logger.Info("UpsertLearningProgressBasedOnReview service returned not found")
@@ -100,6 +128,6 @@ func (h *ReviewHandler) UpsertLearningProgressBasedOnReview(w http.ResponseWrite
 		return
 	}
 
-	logger.Info("Review result submitted successfully", slog.Bool("is_correct_submitted", req.IsCorrect))
+	logger.Info("Review result submitted successfully", slog.Bool("is_correct_submitted", *req.IsCorrect))
 	w.WriteHeader(http.StatusNoContent)
 }

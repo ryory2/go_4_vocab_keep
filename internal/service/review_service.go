@@ -47,9 +47,11 @@ func (s *reviewService) GetReviewWords(ctx context.Context, tenantID uuid.UUID) 
 	operation := "GetReviewWords"
 	logger := s.logger.With(slog.String("operation", operation), slog.String("tenant_id", tenantID.String()))
 	now := time.Now()
+	year, month, day := now.Date()
+	endOfDay := time.Date(year, month, day, 23, 59, 59, 0, now.Location())
 
 	// リポジトリにDB接続を渡す
-	progresses, err := s.progRepo.FindReviewableByTenant(ctx, s.db, tenantID, now, s.cfg.App.ReviewLimit)
+	progresses, err := s.progRepo.FindReviewableByTenant(ctx, s.db, tenantID, endOfDay, s.cfg.App.ReviewLimit)
 	if err != nil {
 		// slog でエラーログ (リポジトリ層でもログされる可能性あり)
 		logger.Error("Error finding reviewable words from repository", slog.Any("error", err))

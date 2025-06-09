@@ -223,3 +223,21 @@ func (r *gormTenantRepository) Delete(ctx context.Context, db *gorm.DB, tenantID
 	// エラーが発生しなければ nil を返す
 	return nil
 }
+
+func (r *gormTenantRepository) FindByEmail(ctx context.Context, db *gorm.DB, email string) (*model.Tenant, error) {
+	var tenant model.Tenant
+	// First は自動で DeletedAt IS NULL を考慮する
+	result := db.WithContext(ctx).Where("email = ?", email).First(&tenant)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, model.ErrNotFound
+		}
+		r.logger.Error(
+			"Error finding tenant by ID in DB",
+			slog.Any("error", result.Error),
+			slog.String("email", email),
+		)
+		return nil, model.ErrInternalServer // DBエラーは汎用エラーに
+	}
+	return &tenant, nil
+}
