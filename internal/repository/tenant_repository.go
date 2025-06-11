@@ -1,3 +1,4 @@
+//go:generate mockery --name TenantRepository --output ./mocks --outpkg mocks --case=underscore
 package repository
 
 import (

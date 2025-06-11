@@ -1,3 +1,4 @@
+//go:generate mockery --name TokenRepository --output ./mocks --outpkg mocks --case=underscore
 package repository
 
 import (

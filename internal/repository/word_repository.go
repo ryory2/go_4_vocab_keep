@@ -1,3 +1,4 @@
+//go:generate mockery --name WordRepository --output ./mocks --outpkg mocks --case=underscore
 package repository
 
 import (
