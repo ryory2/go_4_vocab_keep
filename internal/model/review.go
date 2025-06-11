@@ -5,10 +5,10 @@ import "github.com/google/uuid"
 
 // ReviewWordResponse は復習単語リストのレスポンスDTO
 type ReviewWordResponse struct {
-	WordID     uuid.UUID `json:"word_id"`
-	Term       string    `json:"term"`
-	Definition string    `json:"definition"` // 正解表示用に含める
-	Level      int       `json:"level"`
+	WordID     uuid.UUID     `json:"word_id"`
+	Term       string        `json:"term"`
+	Definition string        `json:"definition"`
+	Level      ProgressLevel `json:"level"` // ★ 型を model.ProgressLevel に変更
 }
 
 // SubmitReviewRequest は復習結果送信リクエストのDTO

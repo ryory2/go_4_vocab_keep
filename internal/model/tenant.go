@@ -14,6 +14,7 @@ type Tenant struct {
 	Name         string         `gorm:"unique;not null" json:"name"`
 	Email        string         `gorm:"unique;not null" json:"email"`
 	PasswordHash string         `gorm:"not null" json:"-"` // json:"-"でレスポンスに含めない
+	IsActive     bool           `json:"is_active" gorm:"default:false"`
 	CreatedAt    time.Time      `json:"created_at"`
 	UpdatedAt    time.Time      `json:"updated_at"`
 	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"` // 論理削除用 (JSONには含めない)
@@ -28,5 +29,20 @@ type ContextKey string
 
 const (
 	TenantIDKey ContextKey = "tenantID"
-	UserIDKey   ContextKey = "userID" // tenantIDと同じだが、意味合いを明確にする
 )
+
+// RegisterRequest は新規登録APIのリクエストボディの構造体 (DTO)
+type RegisterRequest struct {
+	Name     string `json:"name" validate:"required,min=1,max=100"`
+	Email    string `json:"email" validate:"required,email"`
+	Password string `json:"password" validate:"required,min=8,max=72"`
+}
+
+// UserResponse はクライアントに返すユーザー情報の構造体 (パスワードを含まない)
+type TenantResponse struct {
+	TenantID  uuid.UUID `json:"tenant_id"`
+	Name      string    `json:"name"`
+	Email     string    `json:"email"`
+	IsActive  bool      `json:"is_active"`
+	CreatedAt time.Time `json:"created_at"`
+}

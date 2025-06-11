@@ -91,6 +91,15 @@ services:
     depends_on:
       # サービスの依存関係を定義します。
       - task_postgres # "postgres"サービスが先に起動することを保証します。
+      
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: mailhog
+    ports:
+      - "1025:1025" # SMTPサーバーのポート
+      - "8025:8025" # メール閲覧用のWeb UIポート
+    networks:
+      - my-network
 
 volumes:
   # Docker Composeで使用するボリュームを定義します。データの永続化に使用されます。

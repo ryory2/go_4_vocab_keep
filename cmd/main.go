@@ -29,96 +29,62 @@ import (
 )
 
 func main() {
-	//　設定ファイル読み込み用の一時的なロガー設定
-	tempLogger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	slog.SetDefault(tempLogger)
-	log.Println("Log Config Loading...")
-
-	// Configを読み込み
-	if err := config.LoadConfig("../configs"); err != nil { // "configs" ディレクトリを指定
-		slog.Error("Error loading configuration", slog.Any("error", err))
-		os.Exit(1) // Fatalf の代わりに Error + os.Exit
+	if err := config.LoadConfig("./configs"); err != nil {
+		// 起動時の致命的なエラーなので、標準のlog.Fatalfを使う
+		log.Fatalf("Error loading configuration: %v", err)
 	}
 
-	// === 設定に基づいて slog ロガーを初期化 ===
-	logLevel := new(slog.LevelVar) // 動的に変更可能なレベル変数
-	// config.yamlで設定したログレベルを設定
+	// --- ロガー初期化 ---
+	logLevel := new(slog.LevelVar)
 	switch strings.ToLower(config.Cfg.Log.Level) {
 	case "debug":
 		logLevel.Set(slog.LevelDebug)
 	case "info":
 		logLevel.Set(slog.LevelInfo)
-	case "warn", "warning":
+	case "warn":
 		logLevel.Set(slog.LevelWarn)
 	case "error":
 		logLevel.Set(slog.LevelError)
 	default:
-		logLevel.Set(slog.LevelInfo) // 不明な場合はInfo
-		slog.Warn("Unknown log level specified in config, defaulting to INFO", slog.String("level", config.Cfg.Log.Level))
+		logLevel.Set(slog.LevelInfo)
 	}
-	// config.yamlで設定したログフォーマットを設定
-	var handler slog.Handler
-	appEnv := os.Getenv("APP_ENV")
-	if strings.ToLower(appEnv) == "dev" {
-		// --- tint Handler を使用 ---
-		tintOpts := &tint.Options{
-			Level:      logLevel,
-			TimeFormat: time.RFC3339, // 2025-06-04T02:05:41+09:00
-			// AddSource: true, // ソース情報を追加する。（2025-06-04T02:05:41+09:00 INF cmd/main.go:212 Server listening port=:8080）
-		}
-		handler = tint.NewHandler(os.Stderr, tintOpts)
-		tempLogger.Info("Using TINT log handler", slog.String("APP_ENV", appEnv))
-	} else {
-		jsonOpts := &slog.HandlerOptions{
-			Level:     logLevel,
-			AddSource: true,
-		}
-		handler = slog.NewJSONHandler(os.Stderr, jsonOpts)
-		tempLogger.Info("Using JSON log handler", slog.String("APP_ENV", appEnv))
-	}
-	logger := slog.New(handler)
-	log.Println("Log Config Loaded...")
 
-	// Configファイルの読み込み完了後、アプリケーション全体のデフォルトロガーを設定
+	var logHandler slog.Handler
+	if strings.ToLower(config.Cfg.Log.Format) == "text" { // APP_ENVではなくlog.formatを見る
+		logHandler = tint.NewHandler(os.Stderr, &tint.Options{Level: logLevel, TimeFormat: time.RFC3339})
+	} else {
+		logHandler = slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel, AddSource: true})
+	}
+	logger := slog.New(logHandler)
 	slog.SetDefault(logger)
 
-	slog.Info("Application starting...")
+	slog.Info("Application starting...", "env", os.Getenv("APP_ENV"))
 
 	// 2. Initialize Database Connection (GORM)
 	db, err := repository.NewDB(config.Cfg.Database.URL, logger)
 	if err != nil {
-		slog.Error("Error initializing database", slog.Any("error", err))
+		slog.Error("Error initializing database", "error", err)
 		os.Exit(1)
 	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		slog.Error("Error getting underlying sql.DB from GORM", slog.Any("error", err))
-		os.Exit(1)
-	}
-	defer func() {
-		if err := sqlDB.Close(); err != nil {
-			slog.Error("Error closing database connection", slog.Any("error", err))
-		} else {
-			slog.Info("Database connection closed.")
-		}
-	}()
+	sqlDB, _ := db.DB()
+	defer sqlDB.Close()
 
 	// 3. Dependency Injection
-	tenantRepo := repository.NewGormTenantRepository(logger)
-	wordRepo := repository.NewGormWordRepository(logger)
-	progressRepo := repository.NewGormProgressRepository(logger)
+	tenantRepo := repository.NewGormTenantRepository()
+	wordRepo := repository.NewGormWordRepository()
+	progressRepo := repository.NewGormProgressRepository()
+	tokenRepo := repository.NewGormTokenRepository()
 
-	tenantService := service.NewTenantService(db, tenantRepo, logger)
-	wordService := service.NewWordService(db, wordRepo, progressRepo, logger)
+	mailer := service.NewMailer(&config.Cfg)
+
+	wordService := service.NewWordService(db, wordRepo, progressRepo)
 	// ReviewServiceのNew関数にdbを渡すように修正 (もし必要ならReviewServiceの実装も確認)
-	reviewService := service.NewReviewService(db, progressRepo, config.Cfg, logger)
+	reviewService := service.NewReviewService(db, progressRepo, &config.Cfg)
+	authService := service.NewAuthService(db, tenantRepo, tokenRepo, mailer, &config.Cfg)
 
-	// Authenticator を作成
-	tenantAuthenticator := middleware.NewServiceTenantAuthenticator(tenantService, logger)
-
-	tenantHandler := handlers.NewTenantHandler(tenantService, logger)
-	wordHandler := handlers.NewWordHandler(wordService, logger)
-	reviewHandler := handlers.NewReviewHandler(reviewService, logger)
+	wordHandler := handlers.NewWordHandler(wordService)
+	reviewHandler := handlers.NewReviewHandler(reviewService)
+	authHandler := handlers.NewAuthHandler(authService)
 
 	// 4. Setup Router
 	r := chi.NewRouter()
@@ -147,17 +113,23 @@ func main() {
 
 	// API Routes
 	r.Route("/api/v1", func(r chi.Router) {
-		// --- Public routes ---
-		r.Post("/tenants", tenantHandler.CreateTenant) // テナント作成 (認証不要)
-		// ここに他の公開API (例: ログイン) があれば追加
+		// 認証不要
+		r.Post("/register", authHandler.Register)
+		r.Post("/login", authHandler.Login)
+		r.Get("/verify-email", authHandler.VerifyAccount)
+		r.Post("/forgot-password", authHandler.RequestPasswordReset)
+		r.Post("/reset-password", authHandler.ResetPassword)
 
-		// --- Protected routes (require Tenant ID) ---
+		// 要認証
 		r.Group(func(r chi.Router) {
-			// 強化したテナント認証ミドルウェアを適用
-			slog.Info("Applying production authentication middleware")
-			r.Use(middleware.TenantAuthMiddleware(tenantAuthenticator, logger))
+			r.Use(middleware.JWTAuthMiddleware(&config.Cfg))
 
-			// Word routes
+			// 認証
+			r.Route("/auth", func(r chi.Router) {
+				r.Get("/me", authHandler.GetMe)
+			})
+
+			// 単語
 			r.Route("/words", func(r chi.Router) {
 				r.Post("/", wordHandler.PostWord)
 				r.Get("/", wordHandler.GetWords)
@@ -167,17 +139,12 @@ func main() {
 				r.Delete("/{word_id}", wordHandler.DeleteWord)
 			})
 
-			// Review routes
+			// 復習
 			r.Route("/reviews", func(r chi.Router) {
 				r.Get("/", reviewHandler.GetReviewWords)
-				// UpsertLearningProgressBasedOnReview のルーティング
-				// HTTPメソッドは設計によりますが、更新または作成なので PUT または POST が一般的です。
-				// URLに word_id が含まれるので、特定のリソースに対する操作として PUT が適切かもしれません。
+				r.Get("/summary", reviewHandler.GetReviewSummary)
 				r.Put("/{word_id}/result", reviewHandler.UpsertLearningProgressBasedOnReview)
-				// もし POST を使う場合:
-				// r.Post("/{word_id}/result", reviewHandler.UpsertLearningProgressBasedOnReview)
 			})
-			// ここに他の認証が必要なエンドポイントを追加
 		})
 	})
 

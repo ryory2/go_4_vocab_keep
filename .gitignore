@@ -36,6 +36,8 @@ _testmain.go
 # config.yaml は example をコミットし、実際のファイルは無視する
 config.yaml
 /configs/config.yaml
+/configs/config.development.yaml
+/configs/config.staging.yaml
 *.env
 .envrc
 

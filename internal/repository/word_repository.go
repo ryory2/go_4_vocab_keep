@@ -1,11 +1,12 @@
-//go:generate mockery --name WordRepository --srcpkg go_4_vocab_keep/internal/repository --output ../repository/mocks --outpkg mocks --case=underscore
 package repository
 
 import (
 	"context"
 	"errors"
-	"log/slog" // ★ slog パッケージをインポート
+	"fmt"
 
+	// middleware.GetLoggerが返す型として必要
+	"go_4_vocab_keep/internal/middleware"
 	"go_4_vocab_keep/internal/model"
 
 	"github.com/google/uuid"
@@ -22,131 +23,112 @@ type WordRepository interface {
 	CheckTermExists(ctx context.Context, db *gorm.DB, tenantID uuid.UUID, term string, excludeWordID *uuid.UUID) (bool, error)
 }
 
-// gormWordRepository 構造体に logger フィールドを追加
-type gormWordRepository struct {
-	logger *slog.Logger // ★ slog.Logger フィールドを追加
-}
+// gormWordRepository 構造体から logger フィールドを削除
+type gormWordRepository struct{}
 
-// NewGormWordRepository コンストラクタで logger を受け取るように変更
-func NewGormWordRepository(logger *slog.Logger) WordRepository { // ★ logger を引数に追加
-	// ロガーが nil の場合にデフォルトロガーを使用
-	if logger == nil {
-		logger = slog.Default()
-	}
-	return &gormWordRepository{
-		logger: logger, // ★ logger を設定
-	}
+// NewGormWordRepository コンストラクタから logger 引数を削除
+func NewGormWordRepository() WordRepository {
+	return &gormWordRepository{}
 }
 
 func (r *gormWordRepository) Create(ctx context.Context, tx *gorm.DB, word *model.Word) error {
+	logger := middleware.GetLogger(ctx)
 	result := tx.WithContext(ctx).Create(word)
 	if result.Error != nil {
-		// ★ slog で予期せぬDBエラーログ ★
-		r.logger.Error("Error creating word in DB",
-			slog.Any("error", result.Error),
-			slog.String("tenant_id", word.TenantID.String()),
-			slog.String("term", word.Term),
+		logger.Error("Error creating word in DB",
+			"error", result.Error,
+			"tenant_id", word.TenantID.String(),
+			"term", word.Term,
 		)
-		return result.Error // エラーをそのまま返す
+		return fmt.Errorf("gormWordRepository.Create: %w", result.Error)
 	}
 	return nil
 }
 
 func (r *gormWordRepository) FindByID(ctx context.Context, db *gorm.DB, tenantID, wordID uuid.UUID) (*model.Word, error) {
-	// ゼロ値
+	logger := middleware.GetLogger(ctx)
 	var word model.Word
-	// .First(&word) : 条件に合う最初の1件を探し、その結果を引数に書き込む
 	result := db.WithContext(ctx).Where("tenant_id = ? AND word_id = ?", tenantID, wordID).First(&word)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, model.ErrNotFound // 見つからない場合はログ不要
+			return nil, model.ErrNotFound
 		}
-		// ★ slog で予期せぬDBエラーログ ★
-		r.logger.Error("Error finding word by ID in DB",
-			slog.Any("error", result.Error),
-			slog.String("tenant_id", tenantID.String()),
-			slog.String("word_id", wordID.String()),
+		logger.Error("Error finding word by ID in DB",
+			"error", result.Error,
+			"tenant_id", tenantID.String(),
+			"word_id", wordID.String(),
 		)
-		return nil, result.Error // エラーをそのまま返す
+		return nil, fmt.Errorf("gormWordRepository.FindByID: %w", result.Error)
 	}
 	return &word, nil
 }
 
 func (r *gormWordRepository) FindByTenant(ctx context.Context, db *gorm.DB, tenantID uuid.UUID) ([]*model.Word, error) {
+	logger := middleware.GetLogger(ctx)
 	var words []*model.Word
 	result := db.WithContext(ctx).Where("tenant_id = ?", tenantID).Order("created_at DESC").Find(&words)
 	if result.Error != nil {
-		// ★ slog で予期せぬDBエラーログ ★
-		// Find は ErrRecordNotFound を返さないので、エラーがあれば常に予期せぬエラー扱い
-		r.logger.Error("Error finding words by tenant in DB",
-			slog.Any("error", result.Error),
-			slog.String("tenant_id", tenantID.String()),
+		logger.Error("Error finding words by tenant in DB",
+			"error", result.Error,
+			"tenant_id", tenantID.String(),
 		)
-		return nil, result.Error // エラーをそのまま返す
+		return nil, fmt.Errorf("gormWordRepository.FindByTenant: %w", result.Error)
 	}
 	return words, nil
 }
 
 func (r *gormWordRepository) Update(ctx context.Context, tx *gorm.DB, tenantID, wordID uuid.UUID, updates map[string]interface{}) error {
+	logger := middleware.GetLogger(ctx)
 	if len(updates) == 0 {
-		// 更新対象がない場合
 		return nil
 	}
 	result := tx.WithContext(ctx).Model(&model.Word{}).Where("tenant_id = ? AND word_id = ?", tenantID, wordID).Updates(updates)
 	if result.Error != nil {
-		// ★ slog で予期せぬDBエラーログ ★
-		r.logger.Error("Error updating word in DB",
-			slog.Any("error", result.Error),
-			slog.String("tenant_id", tenantID.String()),
-			slog.String("word_id", wordID.String()),
-			slog.Any("updates", updates), // 注意: 更新内容に機密情報がないか確認
+		logger.Error("Error updating word in DB",
+			"error", result.Error,
+			"tenant_id", tenantID.String(),
+			"word_id", wordID.String(),
 		)
-		return result.Error // エラーをそのまま返す
+		return fmt.Errorf("gormWordRepository.Update: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		// RowsAffected == 0 は ErrNotFound として扱う (ログ不要)
 		return model.ErrNotFound
 	}
 	return nil
 }
 
 func (r *gormWordRepository) Delete(ctx context.Context, tx *gorm.DB, tenantID, wordID uuid.UUID) error {
+	logger := middleware.GetLogger(ctx)
 	result := tx.WithContext(ctx).Where("tenant_id = ?", tenantID).Delete(&model.Word{}, wordID)
 	if result.Error != nil {
-		// ★ slog で予期せぬDBエラーログ ★
-		r.logger.Error("Error deleting word in DB",
-			slog.Any("error", result.Error),
-			slog.String("tenant_id", tenantID.String()),
-			slog.String("word_id", wordID.String()),
+		logger.Error("Error deleting word in DB",
+			"error", result.Error,
+			"tenant_id", tenantID.String(),
+			"word_id", wordID.String(),
 		)
-		return result.Error // エラーをそのまま返す
+		return fmt.Errorf("gormWordRepository.Delete: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		// RowsAffected == 0 は ErrNotFound として扱う (ログ不要)
 		return model.ErrNotFound
 	}
 	return nil
 }
 
 func (r *gormWordRepository) CheckTermExists(ctx context.Context, db *gorm.DB, tenantID uuid.UUID, term string, excludeWordID *uuid.UUID) (bool, error) {
-	var count int64 // 結果の件数を格納する変数
-	// 基本となるクエリを構築: コンテキスト、モデル、テナントID、term で絞り込み
+	logger := middleware.GetLogger(ctx)
+	var count int64
 	query := db.WithContext(ctx).Model(&model.Word{}).Where("tenant_id = ? AND term = ?", tenantID, term)
-	// excludeWordID が指定されている（nil でない）場合、その word_id を持つレコードを除外する条件を追加
 	if excludeWordID != nil {
 		query = query.Where("word_id != ?", *excludeWordID)
 	}
-	// 条件に一致するレコード数をカウント
 	result := query.Count(&count)
 	if result.Error != nil {
-		// ★ slog で予期せぬDBエラーログ ★
-		// Count が返すエラーは予期せぬものとする
-		r.logger.Error("Error checking term existence in DB",
-			slog.Any("error", result.Error),
-			slog.String("tenant_id", tenantID.String()),
-			slog.String("term", term),
+		logger.Error("Error checking term existence in DB",
+			"error", result.Error,
+			"tenant_id", tenantID.String(),
+			"term", term,
 		)
-		return false, result.Error // エラーをそのまま返す
+		return false, fmt.Errorf("gormWordRepository.CheckTermExists: %w", result.Error)
 	}
 	return count > 0, nil
 }

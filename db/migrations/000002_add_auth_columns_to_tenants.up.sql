@@ -4,7 +4,8 @@
 -- 最も簡単なのは、一時的にNOT NULLを外すことです。
 ALTER TABLE tenants
 ADD COLUMN email TEXT,
-ADD COLUMN password_hash TEXT;
+ADD COLUMN password_hash TEXT,
+ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT false;
 
 -- ステップ2: 既存のデータに値をUPDATEする
 -- ★★★注意: ここで設定する値は、あなたのアプリケーションの仕様に合わせてください。★★★
@@ -12,7 +13,8 @@ ADD COLUMN password_hash TEXT;
 UPDATE tenants
 SET 
   email = 'temp-' || tenant_id::text || '@example.com', -- tenant_idを使って一意なメールアドレスを生成
-  password_hash = 'temporary-password-hash'             -- 仮のハッシュ値
+  password_hash = 'temporary-password-hash',             -- 仮のハッシュ値
+  is_active = true 
 WHERE 
   email IS NULL; -- まだ設定されていない行のみを対象
 

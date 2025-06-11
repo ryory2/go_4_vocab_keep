@@ -1,0 +1,27 @@
+# 本番環境用の設定 (テンプレート)
+app:
+  frontend_url: https://impierrot.click
+
+log:
+  level: "info"
+
+database:
+  url: "${APP_DATABASE_URL}" # 環境変数から注入
+
+jwt:
+  secret_key: "${APP_JWT_SECRET_KEY}" # 環境変数から注入
+
+# 本番のフロントエンドドメインに合わせて変更
+cors:
+  allowed_origins:
+    - "https://your-production-frontend.com"
+
+mailer:
+  type: "ses"
+
+ses:
+  region: "ap-northeast-1" # あなたのAWSリージョン
+  from: "no-reply@your-production-domain.com" # SESで認証済みのメアド
+  auth_type: "static_credentials"
+  access_key_id: "YOUR_AWS_ACCESS_KEY_ID"
+  secret_access_key: "YOUR_AWS_SECRET_ACCESS_KEY"
