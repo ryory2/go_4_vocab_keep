@@ -14,7 +14,7 @@ jwt:
 # 本番のフロントエンドドメインに合わせて変更
 cors:
   allowed_origins:
-    - "https://your-production-frontend.com"
+    - "https://impierrot.click"
 
 mailer:
   type: "ses"
