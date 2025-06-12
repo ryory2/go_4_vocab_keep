@@ -4,6 +4,7 @@ app:
 
 log:
   level: "info"
+  format: "json"
 
 database:
   url: "${APP_DATABASE_URL}" # 環境変数から注入
