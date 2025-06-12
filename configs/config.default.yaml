@@ -1,0 +1,112 @@
+# 全ての環境で共通のデフォルト設定
+# これらの値は、環境別設定ファイルや環境変数で上書き可能。
+
+app:
+  # アプリケーション名 (JWTのIssuerなどで使用)
+  # Env: APP_APP_NAME
+  name: "Kioku"
+
+  # 1日の復習上限数
+  # Env: APP_APP_REVIEW_LIMIT
+  review_limit: 20
+
+  # フロントエンドのURL
+  # Env: APP_FRONTEND_URL
+  frontend_url: http://localhost:3000
+
+server:
+  # サーバーがリッスンするポート
+  # Env: APP_SERVER_PORT
+  port: ":8080"
+
+auth:
+  # 認証機能の有効/無効フラグ
+  # Env: APP_AUTH_ENABLED
+  enabled: true
+
+log:
+  # ログレベル (debug, info, warn, error)
+  # Env: APP_LOG_LEVEL
+  level: "info"
+
+  # ログフォーマット (json, text)
+  # Env: APP_LOG_FORMAT
+  format: "text"
+
+database:
+  # データベース接続URL (機密情報)
+  # ★本番環境では必ず環境変数で上書きすること
+  # Env: APP_DATABASE_URL
+  url: ""
+
+jwt:
+  # JWTの署名に使う秘密鍵 (機密情報)
+  # ★本番環境では必ず環境変数で上書きすること
+  # Env: APP_JWT_SECRET_KEY
+  secret_key: ""
+
+  # アクセストークンの有効期限
+  # Env: APP_JWT_ACCESS_TOKEN_TTL
+  access_token_ttl: 15m
+
+mailer:
+  # 使用するメーラーの種類 (log, smtp, ses)
+  # Env: APP_MAILER_TYPE
+  type: "log"
+
+smtp:
+  # SMTPサーバーのホスト名
+  # Env: APP_SMTP_HOST
+  host: "localhost"
+
+  # SMTPサーバーのポート
+  # Env: APP_SMTP_PORT
+  port: 1025
+
+  # SMTPサーバーのユーザー名
+  # Env: APP_SMTP_USERNAME
+  username: ""
+
+  # SMTPサーバーのパスワード (機密情報)
+  # Env: APP_SMTP_PASSWORD
+  password: ""
+
+  # メールの送信元アドレス
+  # Env: APP_SMTP_FROM
+  from: "no-reply@example.com"
+
+ses:
+  # AWS SESのリージョン
+  # Env: APP_SES_REGION
+  region: "ap-northeast-1"
+
+  # メールの送信元アドレス
+  # Env: APP_SES_FROM
+  from: "no-reply@example.com"
+
+  # SESの認証方法 (iam_role, env_var)
+  # Env: APP_SES_AUTH_TYPE
+  auth_type: "iam_role"
+
+  # SESの認証情報
+  access_key_id: ""
+  secret_access_key: ""
+
+# CORS設定 (AllowedOriginsは環境ごとに設定することを推奨)
+cors:
+  allowed_origins:
+    - "http://localhost:3000"
+  allowed_methods:
+    - "GET"
+    - "POST"
+    - "PUT"
+    - "PATCH"
+    - "DELETE"
+    - "OPTIONS"
+  allowed_headers:
+    - "Content-Type"
+    - "Authorization"
+  exposed_headers: []
+  allow_credentials: true
+  max_age: 600
+  debug: false

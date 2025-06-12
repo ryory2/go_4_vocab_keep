@@ -1,4 +1,3 @@
-// internal/handlers/word_handler.go
 package handlers
 
 import (
@@ -18,95 +17,75 @@ import (
 
 type WordHandler struct {
 	service service.WordService
-	logger  *slog.Logger
+	// logger *slog.Logger // ベースロガーは不要になる
 }
 
-func NewWordHandler(s service.WordService, logger *slog.Logger) *WordHandler {
-	if logger == nil {
-		logger = slog.Default()
-	}
+// NewWordHandler は WordHandler の新しいインスタンスを生成します
+// コンストラクタから logger の引数を削除
+func NewWordHandler(s service.WordService) *WordHandler {
 	return &WordHandler{
 		service: s,
-		logger:  logger,
 	}
 }
 
 // PostWord は新しい単語リソースを作成するためのハンドラ
 func (h *WordHandler) PostWord(w http.ResponseWriter, r *http.Request) {
-	logger := h.logger.With(slog.String("handler", "PostWord"))
+	logger := middleware.GetLogger(r.Context())
 
-	tenantID, err := middleware.GetTenantIDFromContext(r.Context())
+	userID, err := middleware.GetTenantIDFromContext(r.Context())
 	if err != nil {
-		logger.Warn("Unauthorized access attempt", slog.String("error", err.Error()))
-		appErr := model.NewAppError("UNAUTHORIZED", "認証情報が見つかりません。", "", model.ErrForbidden)
-		webutil.HandleError(w, logger, appErr)
+		webutil.HandleError(w, logger, err)
 		return
 	}
-	logger = logger.With(slog.String("tenant_id", tenantID.String()))
+	logger = logger.With(slog.String("tenant_id", userID.String()))
 
 	var req model.PostWordRequest
 	if err := webutil.DecodeJSONBody(r, &req); err != nil {
-		logger.Warn("Failed to decode request body", slog.String("error", err.Error()))
+		logger.Warn("Failed to decode request body", "error", err)
 		appErr := model.NewAppError("INVALID_REQUEST_BODY", "リクエストボディの形式が正しくありません。", "", model.ErrInvalidInput)
 		webutil.HandleError(w, logger, appErr)
 		return
 	}
 
-	// --- ★ここを validator を使ったバリデーションに置き換え ---
 	if err := webutil.Validator.Struct(req); err != nil {
 		var validationErrors validator.ValidationErrors
-		// エラーがバリデーションエラーか判定
 		if errors.As(err, &validationErrors) {
-			logger.Warn("Validation failed", slog.Any("errors", validationErrors.Error()), slog.Any("request", req))
-
-			// 最初のエラーを代表としてクライアントに返す
-			firstErr := validationErrors[0]
-			// 日本語メッセージに翻訳
-			translatedMsg := firstErr.Translate(webutil.Trans)
-
-			// 詳細なエラー情報を AppError として生成
-			appErr := model.NewAppError(
-				"VALIDATION_ERROR",
-				translatedMsg,
-				firstErr.Field(), // エラーが発生したフィールド (jsonタグ名)
-				model.ErrInvalidInput,
-			)
+			logger.Warn("Validation failed", "errors", validationErrors.Error())
+			appErr := webutil.NewValidationErrorResponse(validationErrors)
 			webutil.HandleError(w, logger, appErr)
 		} else {
-			// バリデーションライブラリ自体のエラーなど、予期せぬエラー
-			logger.Error("Unexpected error during validation", slog.Any("error", err))
+			logger.Error("Unexpected error during validation", "error", err)
 			webutil.HandleError(w, logger, err)
 		}
 		return
 	}
 
-	word, err := h.service.PostWord(r.Context(), tenantID, &req)
+	word, err := h.service.PostWord(r.Context(), userID, &req)
 	if err != nil {
-		logger.Error("Error posting word in service", slog.Any("error", err), slog.Any("request", req))
+		logger.Error("Error posting word in service", "error", err, "request", req)
 		webutil.HandleError(w, logger, err)
 		return
 	}
 
-	logger.Info("Word posted successfully", slog.String("word_id", word.WordID.String()))
+	logger.Info("Word posted successfully", "word_id", word.WordID.String())
 	webutil.RespondWithJSON(w, http.StatusCreated, word, logger)
 }
 
 // GetWords は単語リソースの一覧を取得するためのハンドラ
 func (h *WordHandler) GetWords(w http.ResponseWriter, r *http.Request) {
-	logger := h.logger.With(slog.String("handler", "GetWords"))
+	logger := middleware.GetLogger(r.Context())
+	logger.Debug("GetWords called")
 
-	tenantID, err := middleware.GetTenantIDFromContext(r.Context())
+	userID, err := middleware.GetTenantIDFromContext(r.Context())
 	if err != nil {
-		logger.Warn("Unauthorized access attempt", slog.String("error", err.Error()))
-		appErr := model.NewAppError("UNAUTHORIZED", "認証情報が見つかりません。", "", model.ErrForbidden)
-		webutil.HandleError(w, logger, appErr)
+		webutil.HandleError(w, logger, err)
 		return
 	}
-	logger = logger.With(slog.String("tenant_id", tenantID.String()))
+	logger = logger.With(slog.String("tenant_id", userID.String()))
 
-	words, err := h.service.GetWords(r.Context(), tenantID)
+	words, err := h.service.GetWords(r.Context(), userID)
 	if err != nil {
-		logger.Error("Error listing words in service", slog.Any("error", err))
+		logger.Error("Error listing words in service", "error", err)
 		webutil.HandleError(w, logger, err)
 		return
 	}
@@ -114,40 +93,33 @@ func (h *WordHandler) GetWords(w http.ResponseWriter, r *http.Request) {
 	if words == nil {
 		words = []*model.Word{}
 	}
-	logger.Info("Words listed successfully", slog.Int("count", len(words)))
+	logger.Info("Words listed successfully", "count", len(words))
 	webutil.RespondWithJSON(w, http.StatusOK, words, logger)
 }
 
 // GetWord は特定の単語リソースを取得するためのハンドラ
 func (h *WordHandler) GetWord(w http.ResponseWriter, r *http.Request) {
-	logger := h.logger.With(slog.String("handler", "GetWord"))
+	logger := middleware.GetLogger(r.Context())
 
-	tenantID, err := middleware.GetTenantIDFromContext(r.Context())
+	userID, err := middleware.GetTenantIDFromContext(r.Context())
 	if err != nil {
-		logger.Warn("Unauthorized access attempt", slog.String("error", err.Error()))
-		appErr := model.NewAppError("UNAUTHORIZED", "認証情報が見つかりません。", "", model.ErrForbidden)
-		webutil.HandleError(w, logger, appErr)
+		webutil.HandleError(w, logger, err)
 		return
 	}
-	logger = logger.With(slog.String("tenant_id", tenantID.String()))
+	logger = logger.With(slog.String("tenant_id", userID.String()))
 
 	wordIDStr := chi.URLParam(r, "word_id")
 	wordID, err := uuid.Parse(wordIDStr)
 	if err != nil {
-		logger.Warn("Invalid word ID format in URL", slog.String("word_id_str", wordIDStr), slog.String("error", err.Error()))
+		logger.Warn("Invalid word ID format", "word_id_str", wordIDStr, "error", err)
 		appErr := model.NewAppError("INVALID_URL_PARAM", "word_idの形式が正しくありません。", "word_id", model.ErrInvalidInput)
 		webutil.HandleError(w, logger, appErr)
 		return
 	}
 	logger = logger.With(slog.String("word_id", wordID.String()))
 
-	word, err := h.service.GetWord(r.Context(), tenantID, wordID)
+	word, err := h.service.GetWord(r.Context(), userID, wordID)
 	if err != nil {
-		if errors.Is(err, model.ErrNotFound) {
-			logger.Info("Word not found in service", slog.Any("error", err))
-		} else {
-			logger.Error("Error getting word from service", slog.Any("error", err))
-		}
 		webutil.HandleError(w, logger, err)
 		return
 	}
@@ -158,21 +130,19 @@ func (h *WordHandler) GetWord(w http.ResponseWriter, r *http.Request) {
 
 // PutWord は特定の単語リソースを完全に置き換えるためのハンドラ
 func (h *WordHandler) PutWord(w http.ResponseWriter, r *http.Request) {
-	logger := h.logger.With(slog.String("handler", "PutWord"))
+	logger := middleware.GetLogger(r.Context())
 
-	tenantID, err := middleware.GetTenantIDFromContext(r.Context())
+	userID, err := middleware.GetTenantIDFromContext(r.Context())
 	if err != nil {
-		logger.Warn("Unauthorized access attempt for PutWord", slog.String("error", err.Error()))
-		appErr := model.NewAppError("UNAUTHORIZED", "認証情報が見つかりません。", "", model.ErrForbidden)
-		webutil.HandleError(w, logger, appErr)
+		webutil.HandleError(w, logger, err)
 		return
 	}
-	logger = logger.With(slog.String("tenant_id", tenantID.String()))
+	logger = logger.With(slog.String("tenant_id", userID.String()))
 
 	wordIDStr := chi.URLParam(r, "word_id")
 	wordID, err := uuid.Parse(wordIDStr)
 	if err != nil {
-		logger.Warn("Invalid word ID format in URL for PutWord", slog.String("word_id_str", wordIDStr), slog.String("error", err.Error()))
+		logger.Warn("Invalid word ID format", "word_id_str", wordIDStr, "error", err)
 		appErr := model.NewAppError("INVALID_URL_PARAM", "word_idの形式が正しくありません。", "word_id", model.ErrInvalidInput)
 		webutil.HandleError(w, logger, appErr)
 		return
@@ -181,15 +151,28 @@ func (h *WordHandler) PutWord(w http.ResponseWriter, r *http.Request) {
 
 	var req model.PutWordRequest
 	if err := webutil.DecodeJSONBody(r, &req); err != nil {
-		logger.Warn("Failed to decode PutWord request body", slog.String("error", err.Error()))
+		logger.Warn("Failed to decode request body", "error", err)
 		appErr := model.NewAppError("INVALID_REQUEST_BODY", "リクエストボディの形式が正しくありません。", "", model.ErrInvalidInput)
 		webutil.HandleError(w, logger, appErr)
 		return
 	}
 
-	word, err := h.service.PutWord(r.Context(), tenantID, wordID, &req)
+	if err := webutil.Validator.Struct(req); err != nil {
+		var validationErrors validator.ValidationErrors
+		if errors.As(err, &validationErrors) {
+			logger.Warn("Validation failed for PutWord", "errors", validationErrors.Error())
+			appErr := webutil.NewValidationErrorResponse(validationErrors)
+			webutil.HandleError(w, logger, appErr)
+		} else {
+			logger.Error("Unexpected error during validation for PutWord", "error", err)
+			webutil.HandleError(w, logger, err)
+		}
+		return
+	}
+
+	word, err := h.service.PutWord(r.Context(), userID, wordID, &req)
 	if err != nil {
-		logger.Error("Error putting word in service", slog.Any("error", err), slog.Any("request", req))
+		logger.Error("Error putting word in service", "error", err, "request", req)
 		webutil.HandleError(w, logger, err)
 		return
 	}
@@ -200,21 +183,19 @@ func (h *WordHandler) PutWord(w http.ResponseWriter, r *http.Request) {
 
 // PatchWord は特定の単語リソースの一部を更新するためのハンドラ
 func (h *WordHandler) PatchWord(w http.ResponseWriter, r *http.Request) {
-	logger := h.logger.With(slog.String("handler", "PatchWord"))
+	logger := middleware.GetLogger(r.Context())
 
-	tenantID, err := middleware.GetTenantIDFromContext(r.Context())
+	userID, err := middleware.GetTenantIDFromContext(r.Context())
 	if err != nil {
-		logger.Warn("Unauthorized access attempt for PatchWord", slog.String("error", err.Error()))
-		appErr := model.NewAppError("UNAUTHORIZED", "認証情報が見つかりません。", "", model.ErrForbidden)
-		webutil.HandleError(w, logger, appErr)
+		webutil.HandleError(w, logger, err)
 		return
 	}
-	logger = logger.With(slog.String("tenant_id", tenantID.String()))
+	logger = logger.With(slog.String("tenant_id", userID.String()))
 
 	wordIDStr := chi.URLParam(r, "word_id")
 	wordID, err := uuid.Parse(wordIDStr)
 	if err != nil {
-		logger.Warn("Invalid word ID format in URL for PatchWord", slog.String("word_id_str", wordIDStr), slog.String("error", err.Error()))
+		logger.Warn("Invalid word ID format", "word_id_str", wordIDStr, "error", err)
 		appErr := model.NewAppError("INVALID_URL_PARAM", "word_idの形式が正しくありません。", "word_id", model.ErrInvalidInput)
 		webutil.HandleError(w, logger, appErr)
 		return
@@ -223,43 +204,28 @@ func (h *WordHandler) PatchWord(w http.ResponseWriter, r *http.Request) {
 
 	var req model.PatchWordRequest
 	if err := webutil.DecodeJSONBody(r, &req); err != nil {
-		logger.Warn("Failed to decode PatchWord request body", slog.String("error", err.Error()))
+		logger.Warn("Failed to decode request body", "error", err)
 		appErr := model.NewAppError("INVALID_REQUEST_BODY", "リクエストボディの形式が正しくありません。", "", model.ErrInvalidInput)
 		webutil.HandleError(w, logger, appErr)
 		return
 	}
 
-	// --- ★ここを validator を使ったバリデーションに置き換え ---
 	if err := webutil.Validator.Struct(req); err != nil {
 		var validationErrors validator.ValidationErrors
-		// エラーがバリデーションエラーか判定
 		if errors.As(err, &validationErrors) {
-			logger.Warn("Validation failed", slog.Any("errors", validationErrors.Error()), slog.Any("request", req))
-
-			// 最初のエラーを代表としてクライアントに返す
-			firstErr := validationErrors[0]
-			// 日本語メッセージに翻訳
-			translatedMsg := firstErr.Translate(webutil.Trans)
-
-			// 詳細なエラー情報を AppError として生成
-			appErr := model.NewAppError(
-				"VALIDATION_ERROR",
-				translatedMsg,
-				firstErr.Field(), // エラーが発生したフィールド (jsonタグ名)
-				model.ErrInvalidInput,
-			)
+			logger.Warn("Validation failed for PatchWord", "errors", validationErrors.Error())
+			appErr := webutil.NewValidationErrorResponse(validationErrors)
 			webutil.HandleError(w, logger, appErr)
 		} else {
-			// バリデーションライブラリ自体のエラーなど、予期せぬエラー
-			logger.Error("Unexpected error during validation", slog.Any("error", err))
+			logger.Error("Unexpected error during validation for PatchWord", "error", err)
 			webutil.HandleError(w, logger, err)
 		}
 		return
 	}
 
-	word, err := h.service.PatchWord(r.Context(), tenantID, wordID, &req)
+	word, err := h.service.PatchWord(r.Context(), userID, wordID, &req)
 	if err != nil {
-		logger.Error("Error patching word in service", slog.Any("error", err), slog.Any("request", req))
+		logger.Error("Error patching word in service", "error", err, "request", req)
 		webutil.HandleError(w, logger, err)
 		return
 	}
@@ -270,30 +236,28 @@ func (h *WordHandler) PatchWord(w http.ResponseWriter, r *http.Request) {
 
 // DeleteWord は特定の単語リソースを削除するためのハンドラ
 func (h *WordHandler) DeleteWord(w http.ResponseWriter, r *http.Request) {
-	logger := h.logger.With(slog.String("handler", "DeleteWord"))
+	logger := middleware.GetLogger(r.Context())
 
-	tenantID, err := middleware.GetTenantIDFromContext(r.Context())
+	userID, err := middleware.GetTenantIDFromContext(r.Context())
 	if err != nil {
-		logger.Warn("Unauthorized access attempt for DeleteWord", slog.String("error", err.Error()))
-		appErr := model.NewAppError("UNAUTHORIZED", "認証情報が見つかりません。", "", model.ErrForbidden)
-		webutil.HandleError(w, logger, appErr)
+		webutil.HandleError(w, logger, err)
 		return
 	}
-	logger = logger.With(slog.String("tenant_id", tenantID.String()))
+	logger = logger.With(slog.String("tenant_id", userID.String()))
 
 	wordIDStr := chi.URLParam(r, "word_id")
 	wordID, err := uuid.Parse(wordIDStr)
 	if err != nil {
-		logger.Warn("Invalid word ID format in URL for DeleteWord", slog.String("word_id_str", wordIDStr), slog.String("error", err.Error()))
+		logger.Warn("Invalid word ID format", "word_id_str", wordIDStr, "error", err)
 		appErr := model.NewAppError("INVALID_URL_PARAM", "word_idの形式が正しくありません。", "word_id", model.ErrInvalidInput)
 		webutil.HandleError(w, logger, appErr)
 		return
 	}
 	logger = logger.With(slog.String("word_id", wordID.String()))
 
-	err = h.service.DeleteWord(r.Context(), tenantID, wordID)
+	err = h.service.DeleteWord(r.Context(), userID, wordID)
 	if err != nil {
-		logger.Error("Error deleting word in service", slog.Any("error", err))
+		logger.Error("Error deleting word in service", "error", err)
 		webutil.HandleError(w, logger, err)
 		return
 	}

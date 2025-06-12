@@ -1,9 +1,8 @@
-// internal/handlers/review_handler.go
 package handlers
 
 import (
-	"errors"   // errors パッケージをインポート
-	"log/slog" // slog パッケージをインポート
+	"errors"
+	"log/slog"
 	"net/http"
 
 	"go_4_vocab_keep/internal/middleware"
@@ -16,39 +15,33 @@ import (
 	"github.com/google/uuid"
 )
 
-// ReviewHandler 構造体に logger フィールドを追加
 type ReviewHandler struct {
 	service service.ReviewService
-	logger  *slog.Logger // slog.Logger フィールドを追加
+	// logger  *slog.Logger // ベースロガーは不要
 }
 
-// NewReviewHandler コンストラクタで logger を受け取るように変更
-func NewReviewHandler(s service.ReviewService, logger *slog.Logger) *ReviewHandler { // logger を引数に追加
-	// ロガーが nil の場合にデフォルトロガーを使用
-	if logger == nil {
-		logger = slog.Default()
-	}
+// NewReviewHandler コンストラクタから logger の引数を削除
+func NewReviewHandler(s service.ReviewService) *ReviewHandler {
 	return &ReviewHandler{
 		service: s,
-		logger:  logger, // logger を設定
 	}
 }
 
 func (h *ReviewHandler) GetReviewWords(w http.ResponseWriter, r *http.Request) {
-	logger := h.logger.With(slog.String("handler", "GetReviewWords"))
+	// リクエストコンテキストからロガーを取得
+	logger := middleware.GetLogger(r.Context())
 
-	tenantID, err := middleware.GetTenantIDFromContext(r.Context())
+	// 新しい方法でユーザーIDを取得 (tenantIDとして扱う)
+	userID, err := middleware.GetTenantIDFromContext(r.Context())
 	if err != nil {
-		logger.Warn("Unauthorized access attempt", slog.String("error", err.Error()))
-		appErr := model.NewAppError("UNAUTHORIZED", "認証情報が見つかりません。", "", model.ErrForbidden)
-		webutil.HandleError(w, logger, appErr)
+		webutil.HandleError(w, logger, err)
 		return
 	}
-	logger = logger.With(slog.String("tenant_id", tenantID.String()))
+	logger = logger.With(slog.String("tenant_id", userID.String()))
 
-	reviewWords, err := h.service.GetReviewWords(r.Context(), tenantID)
+	reviewWords, err := h.service.GetReviewWords(r.Context(), userID)
 	if err != nil {
-		logger.Error("Error getting review words from service", slog.Any("error", err))
+		logger.Error("Error getting review words from service", "error", err)
 		webutil.HandleError(w, logger, err)
 		return
 	}
@@ -56,26 +49,49 @@ func (h *ReviewHandler) GetReviewWords(w http.ResponseWriter, r *http.Request) {
 	if reviewWords == nil {
 		reviewWords = []*model.ReviewWordResponse{}
 	}
-	logger.Info("Review words retrieved successfully", slog.Int("count", len(reviewWords)))
+	logger.Info("Review words retrieved successfully", "count", len(reviewWords))
 	webutil.RespondWithJSON(w, http.StatusOK, reviewWords, logger)
 }
 
-func (h *ReviewHandler) UpsertLearningProgressBasedOnReview(w http.ResponseWriter, r *http.Request) {
-	logger := h.logger.With(slog.String("handler", "UpsertLearningProgressBasedOnReview"))
+func (h *ReviewHandler) GetReviewSummary(w http.ResponseWriter, r *http.Request) {
+	logger := middleware.GetLogger(r.Context())
 
-	tenantID, err := middleware.GetTenantIDFromContext(r.Context())
+	userID, err := middleware.GetTenantIDFromContext(r.Context())
 	if err != nil {
-		logger.Warn("Unauthorized access attempt", slog.String("error", err.Error()))
-		appErr := model.NewAppError("UNAUTHORIZED", "認証情報が見つかりません。", "", model.ErrForbidden)
-		webutil.HandleError(w, logger, appErr)
+		webutil.HandleError(w, logger, err)
 		return
 	}
-	logger = logger.With(slog.String("tenant_id", tenantID.String()))
+	logger = logger.With("tenant_id", userID.String())
+
+	count, err := h.service.GetReviewWordsCount(r.Context(), userID)
+	if err != nil {
+		webutil.HandleError(w, logger, err)
+		return
+	}
+
+	// レスポンスをJSONで返す
+	response := map[string]int64{
+		"review_count": count,
+	}
+	webutil.RespondWithJSON(w, http.StatusOK, response, logger)
+}
+
+func (h *ReviewHandler) UpsertLearningProgressBasedOnReview(w http.ResponseWriter, r *http.Request) {
+	// リクエストコンテキストからロガーを取得
+	logger := middleware.GetLogger(r.Context())
+
+	// 新しい方法でユーザーIDを取得 (tenantIDとして扱う)
+	userID, err := middleware.GetTenantIDFromContext(r.Context())
+	if err != nil {
+		webutil.HandleError(w, logger, err)
+		return
+	}
+	logger = logger.With(slog.String("tenant_id", userID.String()))
 
 	wordIDStr := chi.URLParam(r, "word_id")
 	wordID, err := uuid.Parse(wordIDStr)
 	if err != nil {
-		logger.Warn("Invalid word ID format in URL", slog.String("word_id_str", wordIDStr), slog.String("error", err.Error()))
+		logger.Warn("Invalid word ID format", "word_id_str", wordIDStr, "error", err)
 		appErr := model.NewAppError("INVALID_URL_PARAM", "word_idの形式が正しくありません。", "word_id", model.ErrInvalidInput)
 		webutil.HandleError(w, logger, appErr)
 		return
@@ -84,50 +100,33 @@ func (h *ReviewHandler) UpsertLearningProgressBasedOnReview(w http.ResponseWrite
 
 	var req model.SubmitReviewRequest
 	if err := webutil.DecodeJSONBody(r, &req); err != nil {
-		logger.Warn("Failed to decode request body", slog.String("error", err.Error()))
+		logger.Warn("Failed to decode request body", "error", err)
 		appErr := model.NewAppError("INVALID_REQUEST_BODY", "リクエストボディの形式が正しくありません。", "", model.ErrInvalidInput)
 		webutil.HandleError(w, logger, appErr)
 		return
 	}
 
+	// SubmitReviewRequest に validate タグが付いていると仮定
 	if err := webutil.Validator.Struct(req); err != nil {
 		var validationErrors validator.ValidationErrors
-		// エラーがバリデーションエラーか判定
 		if errors.As(err, &validationErrors) {
-			logger.Warn("Validation failed", slog.Any("errors", validationErrors.Error()), slog.Any("request", req))
-
-			// 最初のエラーを代表としてクライアントに返す
-			firstErr := validationErrors[0]
-			// 日本語メッセージに翻訳
-			translatedMsg := firstErr.Translate(webutil.Trans)
-
-			// 詳細なエラー情報を AppError として生成
-			appErr := model.NewAppError(
-				"VALIDATION_ERROR",
-				translatedMsg,
-				firstErr.Field(), // エラーが発生したフィールド (jsonタグ名)
-				model.ErrInvalidInput,
-			)
+			logger.Warn("Validation failed", "errors", validationErrors.Error())
+			appErr := webutil.NewValidationErrorResponse(validationErrors)
 			webutil.HandleError(w, logger, appErr)
 		} else {
-			// バリデーションライブラリ自体のエラーなど、予期せぬエラー
-			logger.Error("Unexpected error during validation", slog.Any("error", err))
+			logger.Error("Unexpected error during validation", "error", err)
 			webutil.HandleError(w, logger, err)
 		}
 		return
 	}
 
-	err = h.service.UpsertLearningProgressBasedOnReview(r.Context(), tenantID, wordID, *req.IsCorrect)
+	err = h.service.UpsertLearningProgressBasedOnReview(r.Context(), userID, wordID, *req.IsCorrect)
 	if err != nil {
-		if errors.Is(err, model.ErrNotFound) {
-			logger.Info("UpsertLearningProgressBasedOnReview service returned not found")
-		} else {
-			logger.Error("Error submitting review result in service")
-		}
+		// サービス層から返されたエラーをそのまま処理
 		webutil.HandleError(w, logger, err)
 		return
 	}
 
-	logger.Info("Review result submitted successfully", slog.Bool("is_correct_submitted", *req.IsCorrect))
+	logger.Info("Review result submitted successfully", "is_correct", *req.IsCorrect)
 	w.WriteHeader(http.StatusNoContent)
 }

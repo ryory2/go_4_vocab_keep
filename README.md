@@ -85,3 +85,10 @@ go test -v ./internal/service/
 
 # ハンドラーてえ嘘t
 go test -v ./internal/service/
+
+
+
+
+# ブランチ運用
+本番用ブランチ: main
+開発用ブランチ: develop
