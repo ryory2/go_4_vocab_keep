@@ -221,3 +221,28 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		"message": "パスワードが正常に更新されました。",
 	}, logger)
 }
+
+func (h *AuthHandler) HandleGoogleLogin(w http.ResponseWriter, r *http.Request) {
+	logger := middleware.GetLogger(r.Context())
+
+	var req model.GoogleLoginRequest
+	if err := webutil.DecodeJSONBody(r, &req); err != nil {
+		appErr := model.NewAppError("INVALID_REQUEST_BODY", "リクエストボディの形式が正しくありません。", "", model.ErrInvalidInput)
+		webutil.HandleError(w, logger, appErr)
+		return
+	}
+	if err := webutil.Validator.Struct(req); err != nil {
+		appErr := model.NewAppError("VALIDATION_ERROR", "認証コードが必要です。", "code", model.ErrInvalidInput)
+		webutil.HandleError(w, logger, appErr)
+		return
+	}
+
+	loginResponse, err := h.service.HandleGoogleLogin(r.Context(), req.Code)
+	if err != nil {
+		webutil.HandleError(w, logger, err)
+		return
+	}
+
+	// 成功したら、通常のログインと同様にJWTを返す
+	webutil.RespondWithJSON(w, http.StatusOK, loginResponse, logger)
+}

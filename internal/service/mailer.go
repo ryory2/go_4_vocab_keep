@@ -1,3 +1,4 @@
+//go:generate mockery --name Mailer --output ./mocks --outpkg mocks --case=underscore
 package service
 
 import (

@@ -119,6 +119,7 @@ func main() {
 		r.Get("/verify-email", authHandler.VerifyAccount)
 		r.Post("/forgot-password", authHandler.RequestPasswordReset)
 		r.Post("/reset-password", authHandler.ResetPassword)
+		r.Post("/auth/google/callback", authHandler.HandleGoogleLogin)
 
 		// 要認証
 		r.Group(func(r chi.Router) {

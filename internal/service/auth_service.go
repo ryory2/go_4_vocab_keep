@@ -4,8 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"time"
 
 	"go_4_vocab_keep/internal/config"
@@ -16,6 +19,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 	"gorm.io/gorm"
 )
 
@@ -27,25 +32,40 @@ type AuthService interface {
 	GetTenant(ctx context.Context, tenantID uuid.UUID) (*model.Tenant, error)
 	RequestPasswordReset(ctx context.Context, email string) error
 	ResetPassword(ctx context.Context, token, newPassword string) error
+	HandleGoogleLogin(ctx context.Context, code string) (*model.LoginResponse, error)
 }
 
 // authService 構造体に依存関係を追加
 type authService struct {
-	db         *gorm.DB
-	tenantRepo repository.TenantRepository
-	tokenRepo  repository.TokenRepository
-	mailer     Mailer
-	cfg        *config.Config
+	db                *gorm.DB
+	tenantRepo        repository.TenantRepository
+	tokenRepo         repository.TokenRepository
+	mailer            Mailer
+	cfg               *config.Config
+	googleOAuthConfig *oauth2.Config
 }
 
 // NewAuthService は AuthService の新しいインスタンスを生成します
 func NewAuthService(db *gorm.DB, tenantRepo repository.TenantRepository, tokenRepo repository.TokenRepository, mailer Mailer, cfg *config.Config) AuthService {
+
+	gOAuthConfig := &oauth2.Config{
+		ClientID:     cfg.GoogleOAuth.ClientID,
+		ClientSecret: cfg.GoogleOAuth.ClientSecret,
+		RedirectURL:  cfg.GoogleOAuth.RedirectURL,
+		Scopes: []string{
+			"https://www.googleapis.com/auth/userinfo.email",
+			"https://www.googleapis.com/auth/userinfo.profile",
+		},
+		Endpoint: google.Endpoint,
+	}
+
 	return &authService{
-		db:         db,
-		tenantRepo: tenantRepo,
-		tokenRepo:  tokenRepo,
-		mailer:     mailer,
-		cfg:        cfg,
+		db:                db,
+		tenantRepo:        tenantRepo,
+		tokenRepo:         tokenRepo,
+		mailer:            mailer,
+		cfg:               cfg,
+		googleOAuthConfig: gOAuthConfig,
 	}
 }
 
@@ -335,6 +355,69 @@ func (s *authService) ResetPassword(ctx context.Context, tokenString, newPasswor
 	})
 }
 
+// HandleGoogleLoginメソッドを新規実装
+func (s *authService) HandleGoogleLogin(ctx context.Context, code string) (*model.LoginResponse, error) {
+	logger := middleware.GetLogger(ctx)
+
+	googleToken, err := s.googleOAuthConfig.Exchange(ctx, code)
+	if err != nil {
+		return nil, model.NewAppError("GOOGLE_AUTH_FAILED", "Google認証コードの交換に失敗しました。", "", err)
+	}
+
+	response, err := http.Get("https://www.googleapis.com/oauth2/v2/userinfo?access_token=" + googleToken.AccessToken)
+	if err != nil {
+		return nil, model.NewAppError("GOOGLE_API_FAILED", "Googleからのユーザー情報取得に失敗しました。", "", err)
+	}
+	defer response.Body.Close()
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, model.NewAppError("GOOGLE_API_FAILED", "ユーザー情報の解析に失敗しました。", "", err)
+	}
+
+	var googleUser struct {
+		Email string `json:"email"`
+		Name  string `json:"name"`
+	}
+	if err := json.Unmarshal(body, &googleUser); err != nil {
+		return nil, model.NewAppError("GOOGLE_API_FAILED", "ユーザー情報の解析に失敗しました。", "", err)
+	}
+
+	logger = logger.With("google_email", googleUser.Email)
+	var appUser *model.Tenant
+
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		user, findErr := s.tenantRepo.FindByEmail(ctx, tx, googleUser.Email)
+		if findErr != nil && !errors.Is(findErr, model.ErrNotFound) {
+			return findErr
+		}
+
+		if errors.Is(findErr, model.ErrNotFound) {
+			logger.Info("Creating new user from Google login")
+			newUser := &model.Tenant{
+				TenantID:     uuid.New(),
+				Name:         googleUser.Name,
+				Email:        googleUser.Email,
+				PasswordHash: "",
+				IsActive:     true,
+			}
+			if createErr := s.tenantRepo.Create(ctx, tx, newUser); createErr != nil {
+				return createErr
+			}
+			appUser = newUser
+		} else {
+			logger.Info("User found, proceeding with Google login")
+			appUser = user
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, model.NewAppError("DB_OPERATION_FAILED", "ユーザー処理中にエラーが発生しました。", "", err)
+	}
+
+	return s.generateAppJWT(ctx, appUser)
+}
+
 // --- パスワードリセット用のヘルパー関数 ---
 func (s *authService) generateAndSavePasswordResetToken(ctx context.Context, tx *gorm.DB, tenantID uuid.UUID) (string, error) {
 	tokenBytes := make([]byte, 32)
@@ -351,4 +434,20 @@ func (s *authService) generateAndSavePasswordResetToken(ctx context.Context, tx 
 		return "", model.NewAppError("INTERNAL_SERVER_ERROR", "トークンの保存に失敗しました。", "", err)
 	}
 	return tokenString, nil
+}
+
+// 共通のJWT生成ロジックをヘルパー関数に切り出す
+func (s *authService) generateAppJWT(ctx context.Context, tenant *model.Tenant) (*model.LoginResponse, error) {
+	claims := &jwt.RegisteredClaims{
+		Issuer:    s.cfg.App.Name,
+		Subject:   tenant.TenantID.String(),
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.cfg.JWT.AccessTokenTTL)),
+		IssuedAt:  jwt.NewNumericDate(time.Now()),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signedToken, err := token.SignedString([]byte(s.cfg.JWT.SecretKey))
+	if err != nil {
+		return nil, model.NewAppError("INTERNAL_SERVER_ERROR", "トークンの生成に失敗しました。", "", err)
+	}
+	return &model.LoginResponse{AccessToken: signedToken}, nil
 }

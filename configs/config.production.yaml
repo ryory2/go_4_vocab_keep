@@ -20,8 +20,13 @@ mailer:
   type: "ses"
 
 ses:
-  region: "ap-northeast-1" # あなたのAWSリージョン
-  from: "no-reply@your-production-domain.com" # SESで認証済みのメアド
+  region: "ap-northeast-1" # AWSリージョン
+  from: "no-reply@impierrot.click" # SESで認証済みのメアド
   auth_type: "static_credentials"
   access_key_id: "YOUR_AWS_ACCESS_KEY_ID"
   secret_access_key: "YOUR_AWS_SECRET_ACCESS_KEY"
+
+google_oauth:
+  client_id: "605051637308-obdjfl5dahf2ji5n1jlo4ru3hcb7vnbd.apps.googleusercontent.com" # ★ 取得したクライアントID
+  client_secret: "${APP_DATABASE_URL}" # 環境変数から注入
+  redirect_url: "https://impierrot.click/api/v1/auth/google/callback"

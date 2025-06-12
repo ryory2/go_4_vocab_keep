@@ -30,3 +30,7 @@ type ResetPasswordRequest struct {
 	Token    string `json:"token" validate:"required"`
 	Password string `json:"password" validate:"required,min=8,max=72"`
 }
+
+type GoogleLoginRequest struct {
+	Code string `json:"code" validate:"required"`
+}

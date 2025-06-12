@@ -71,17 +71,24 @@ type MailerConfig struct {
 	Type string `mapstructure:"type"` // "log", "smtp", or "ses"
 }
 
+type GoogleOAuthConfig struct {
+	ClientID     string `mapstructure:"client_id"`
+	ClientSecret string `mapstructure:"client_secret"`
+	RedirectURL  string `mapstructure:"redirect_url"`
+}
+
 type Config struct {
-	Database DatabaseConfig `mapstructure:"database"`
-	Server   ServerConfig   `mapstructure:"server"`
-	App      AppConfig      `mapstructure:"app"`
-	Auth     AuthConfig     `mapstructure:"auth"`
-	Log      LogConfig      `mapstructure:"log"`
-	CORS     CORSConfig     `mapstructure:"cors"`
-	JWT      JWTConfig      `mapstructure:"jwt"`
-	SMTP     SMTPConfig     `mapstructure:"smtp"`
-	SES      SESConfig      `mapstructure:"ses"`
-	Mailer   MailerConfig   `mapstructure:"mailer"`
+	Database    DatabaseConfig    `mapstructure:"database"`
+	Server      ServerConfig      `mapstructure:"server"`
+	App         AppConfig         `mapstructure:"app"`
+	Auth        AuthConfig        `mapstructure:"auth"`
+	Log         LogConfig         `mapstructure:"log"`
+	CORS        CORSConfig        `mapstructure:"cors"`
+	JWT         JWTConfig         `mapstructure:"jwt"`
+	SMTP        SMTPConfig        `mapstructure:"smtp"`
+	SES         SESConfig         `mapstructure:"ses"`
+	Mailer      MailerConfig      `mapstructure:"mailer"`
+	GoogleOAuth GoogleOAuthConfig `mapstructure:"google_oauth"`
 }
 
 // Cfg はアプリケーション全体の設定を保持するグローバル変数
