@@ -12,6 +12,7 @@ RUN go mod download && go mod verify
 
 # ソースコードをコピー
 COPY . .
+COPY ./configs ./cmd/configs
 
 # アプリケーションのビルド
 WORKDIR /app/cmd
