@@ -3,7 +3,7 @@ app:
   frontend_url: https://impierrot.click
 
 log:
-  level: "info"
+  level: "debug"
   format: "json"
 
 database:
