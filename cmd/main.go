@@ -50,8 +50,16 @@ func main() {
 	}
 
 	var logHandler slog.Handler
+	appEnv := os.Getenv("APP_ENV")
 	if strings.ToLower(config.Cfg.Log.Format) == "text" { // APP_ENVではなくlog.formatを見る
-		logHandler = tint.NewHandler(os.Stderr, &tint.Options{Level: logLevel, TimeFormat: time.RFC3339})
+		noColor := (appEnv != "dev" && appEnv != "local")
+		tintOpts := &tint.Options{
+			Level:      logLevel,
+			TimeFormat: time.RFC3339,
+			AddSource:  true,
+			NoColor:    noColor,
+		}
+		logHandler = tint.NewHandler(os.Stdout, tintOpts)
 	} else {
 		logHandler = slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel, AddSource: true})
 	}
