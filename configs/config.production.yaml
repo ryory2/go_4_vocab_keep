@@ -29,5 +29,5 @@ ses:
 
 google_oauth:
   client_id: "605051637308-obdjfl5dahf2ji5n1jlo4ru3hcb7vnbd.apps.googleusercontent.com" # ★ 取得したクライアントID
-  client_secret: "${APP_DATABASE_URL}" # 環境変数から注入
+  client_secret: "${APP_GOOGLE_OAUTH_CLIENT_SECRET}" # 環境変数から注入
   redirect_url: "https://impierrot.click/auth/google/callback"
