@@ -4,7 +4,7 @@ app:
 
 log:
   level: "debug"
-  format: "json"
+  format: "text"
 
 database:
   url: "${APP_DATABASE_URL}" # 環境変数から注入
