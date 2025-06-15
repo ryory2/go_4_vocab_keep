@@ -23,9 +23,9 @@ mailer:
 ses:
   region: "ap-northeast-1" # AWSリージョン
   from: "no-reply@impierrot.click" # SESで認証済みのメアド
-  auth_type: "static_credentials"
-  access_key_id: "YOUR_AWS_ACCESS_KEY_ID"
-  secret_access_key: "YOUR_AWS_SECRET_ACCESS_KEY"
+  auth_type: "iam_role"
+  access_key_id: "${APP_AWS_ACCESS_KEY_ID}"
+  secret_access_key: "${APP_AWS_SECRET_ACCESS_KEY}"
 
 google_oauth:
   client_id: "605051637308-obdjfl5dahf2ji5n1jlo4ru3hcb7vnbd.apps.googleusercontent.com" # ★ 取得したクライアントID
