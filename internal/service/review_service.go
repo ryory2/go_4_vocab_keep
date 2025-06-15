@@ -143,7 +143,7 @@ func calculateNextProgress(progress *model.LearningProgress, isCorrect bool, log
 
 	if !isCorrect {
 		// 間違えたら必ずレベル1に戻り、翌日復習
-		return model.Level1, now.AddDate(0, 0, 1)
+		return model.Level1, now.AddDate(0, 0, -1)
 	}
 
 	// 正解した場合
