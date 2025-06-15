@@ -70,7 +70,7 @@ func (s *wordService) PostWord(ctx context.Context, tenantID uuid.UUID, req *mod
 			TenantID:       tenantID,
 			WordID:         word.WordID,
 			Level:          model.Level1,
-			NextReviewDate: time.Now(),
+			NextReviewDate: time.Now().Add(-24 * time.Hour),
 		}
 		if err := s.progRepo.Create(ctx, tx, progress); err != nil {
 			logger.Error("Failed to create initial learning progress", "error", err)

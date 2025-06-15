@@ -5,8 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
-	// slogはmiddleware.GetLoggerが返す型として必要
 	"go_4_vocab_keep/internal/middleware"
 	"go_4_vocab_keep/internal/model"
 
@@ -23,10 +21,8 @@ type TenantRepository interface {
 	Delete(ctx context.Context, db *gorm.DB, tenantID uuid.UUID) error
 }
 
-// loggerフィールドを削除
 type gormTenantRepository struct{}
 
-// logger引数を削除
 func NewGormTenantRepository() TenantRepository {
 	return &gormTenantRepository{}
 }
@@ -111,11 +107,8 @@ func (r *gormTenantRepository) Delete(ctx context.Context, db *gorm.DB, tenantID
 		return fmt.Errorf("gormTenantRepository.Delete: %w", result.Error)
 	}
 
-	// 冪等性を保つため、RowsAffected == 0 でもエラーにしない
 	if result.RowsAffected == 0 {
 		logger.Warn("Tenant not found for deletion (idempotent)", "tenant_id", tenantID.String())
-		// ここで ErrNotFound を返すと、呼び出し側で「見つからなかった」場合の処理が必要になる。
-		// DELETE 操作では、最終的に「存在しない」状態になれば良いので、nilを返すのが一般的。
 	}
 
 	return nil

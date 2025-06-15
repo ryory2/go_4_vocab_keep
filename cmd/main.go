@@ -1,9 +1,13 @@
-// cmd/myapp/main.go
 package main
 
 import (
 	"context"
 	"errors"
+	"go_4_vocab_keep/internal/config"
+	"go_4_vocab_keep/internal/handlers"
+	"go_4_vocab_keep/internal/middleware"
+	"go_4_vocab_keep/internal/repository"
+	"go_4_vocab_keep/internal/service"
 	"log"
 	"log/slog"
 	"net/http"
@@ -14,23 +18,13 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/lmittmann/tint"
 	"github.com/rs/cors"
-
-	"go_4_vocab_keep/internal/config"
-	"go_4_vocab_keep/internal/handlers"
-	"go_4_vocab_keep/internal/middleware"
-	"go_4_vocab_keep/internal/repository"
-	"go_4_vocab_keep/internal/service"
-
-	chimiddleware "github.com/go-chi/chi/v5/middleware"
-
-	"gorm.io/gorm" // GORMはDB接続用
 )
 
 func main() {
 	if err := config.LoadConfig("./configs"); err != nil {
-		// 起動時の致命的なエラーなので、標準のlog.Fatalfを使う
 		log.Fatalf("Error loading configuration: %v", err)
 	}
 
@@ -51,14 +45,9 @@ func main() {
 
 	var logHandler slog.Handler
 	appEnv := os.Getenv("APP_ENV")
-	if strings.ToLower(config.Cfg.Log.Format) == "text" { // APP_ENVではなくlog.formatを見る
+	if strings.ToLower(config.Cfg.Log.Format) == "text" {
 		noColor := (appEnv != "dev" && appEnv != "local")
-		tintOpts := &tint.Options{
-			Level:      logLevel,
-			TimeFormat: time.RFC3339,
-			AddSource:  true,
-			NoColor:    noColor,
-		}
+		tintOpts := &tint.Options{Level: logLevel, TimeFormat: time.RFC3339, AddSource: true, NoColor: noColor}
 		logHandler = tint.NewHandler(os.Stdout, tintOpts)
 	} else {
 		logHandler = slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel, AddSource: true})
@@ -68,7 +57,6 @@ func main() {
 
 	slog.Info("Application starting...", "env", os.Getenv("APP_ENV"))
 
-	// 2. Initialize Database Connection (GORM)
 	db, err := repository.NewDB(config.Cfg.Database.URL, logger)
 	if err != nil {
 		slog.Error("Error initializing database", "error", err)
@@ -77,8 +65,9 @@ func main() {
 	sqlDB, _ := db.DB()
 	defer sqlDB.Close()
 
-	// 3. Dependency Injection
+	// Dependency Injection
 	tenantRepo := repository.NewGormTenantRepository()
+	identityRepo := repository.NewGormIdentityRepository()
 	wordRepo := repository.NewGormWordRepository()
 	progressRepo := repository.NewGormProgressRepository()
 	tokenRepo := repository.NewGormTokenRepository()
@@ -86,15 +75,13 @@ func main() {
 	mailer := service.NewMailer(&config.Cfg)
 
 	wordService := service.NewWordService(db, wordRepo, progressRepo)
-	// ReviewServiceのNew関数にdbを渡すように修正 (もし必要ならReviewServiceの実装も確認)
 	reviewService := service.NewReviewService(db, progressRepo, &config.Cfg)
-	authService := service.NewAuthService(db, tenantRepo, tokenRepo, mailer, &config.Cfg)
+	authService := service.NewAuthService(db, tenantRepo, identityRepo, tokenRepo, mailer, &config.Cfg)
 
 	wordHandler := handlers.NewWordHandler(wordService)
 	reviewHandler := handlers.NewReviewHandler(reviewService)
 	authHandler := handlers.NewAuthHandler(authService)
 
-	// 4. Setup Router
 	r := chi.NewRouter()
 
 	// Middleware
@@ -111,7 +98,7 @@ func main() {
 		ExposedHeaders:   config.Cfg.CORS.ExposedHeaders,
 		AllowCredentials: config.Cfg.CORS.AllowCredentials,
 		MaxAge:           config.Cfg.CORS.MaxAge,
-		Debug:            false, // (変更) CORSライブラリのデバッグログを常に無効化
+		Debug:            false,
 	}
 	corsHandler := cors.New(corsOptions)
 	r.Use(corsHandler.Handler)
@@ -177,7 +164,6 @@ func main() {
 		w.Write([]byte("OK"))
 	})
 
-	// 5. Start Server
 	server := &http.Server{
 		Addr:         config.Cfg.Server.Port,
 		Handler:      r,
@@ -190,11 +176,10 @@ func main() {
 		slog.Info("Server listening", slog.String("port", config.Cfg.Server.Port))
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("Could not listen on port", slog.String("port", config.Cfg.Server.Port), slog.Any("error", err))
-			os.Exit(1) // Listen失敗は致命的
+			os.Exit(1)
 		}
 	}()
 
-	// Graceful Shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
@@ -206,18 +191,5 @@ func main() {
 		slog.Error("Server forced to shutdown", slog.Any("error", err))
 	}
 
-	log.Println("Server exiting")
-}
-
-// GORMのDB接続を取得するヘルパー (main外に置いても良い)
-func getDBFromRequest(r *http.Request) *gorm.DB {
-	// ここでは単純化のため、グローバルなDB接続を使うことを想定していますが、
-	// 本来はリクエストごとにDBセッションを取得するか、
-	// ミドルウェアでコンテキストにDB接続をセットするのがより良い方法です。
-	// このサンプルコードでは、DIされたDBインスタンスを直接使います。
-	// ただし、main関数外から直接db変数にアクセスできないため、
-	// 実際には引数で渡すか、別の方法で共有する必要があります。
-	// ここでは concept を示すため不完全な形で記述します。
-	// panic("getDBFromRequest needs proper implementation to access the db instance")
-	return nil // 不完全な実装 - 実際には main の db を渡す必要がある
+	slog.Info("Server exiting")
 }

@@ -7,14 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"time"
-
 	"go_4_vocab_keep/internal/config"
 	"go_4_vocab_keep/internal/middleware"
 	"go_4_vocab_keep/internal/model"
 	"go_4_vocab_keep/internal/repository"
+	"io"
+	"net/http"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -39,15 +38,14 @@ type AuthService interface {
 type authService struct {
 	db                *gorm.DB
 	tenantRepo        repository.TenantRepository
+	identityRepo      repository.IdentityRepository
 	tokenRepo         repository.TokenRepository
 	mailer            Mailer
 	cfg               *config.Config
 	googleOAuthConfig *oauth2.Config
 }
 
-// NewAuthService は AuthService の新しいインスタンスを生成します
-func NewAuthService(db *gorm.DB, tenantRepo repository.TenantRepository, tokenRepo repository.TokenRepository, mailer Mailer, cfg *config.Config) AuthService {
-
+func NewAuthService(db *gorm.DB, tenantRepo repository.TenantRepository, identityRepo repository.IdentityRepository, tokenRepo repository.TokenRepository, mailer Mailer, cfg *config.Config) AuthService {
 	gOAuthConfig := &oauth2.Config{
 		ClientID:     cfg.GoogleOAuth.ClientID,
 		ClientSecret: cfg.GoogleOAuth.ClientSecret,
@@ -62,6 +60,7 @@ func NewAuthService(db *gorm.DB, tenantRepo repository.TenantRepository, tokenRe
 	return &authService{
 		db:                db,
 		tenantRepo:        tenantRepo,
+		identityRepo:      identityRepo,
 		tokenRepo:         tokenRepo,
 		mailer:            mailer,
 		cfg:               cfg,
@@ -69,7 +68,6 @@ func NewAuthService(db *gorm.DB, tenantRepo repository.TenantRepository, tokenRe
 	}
 }
 
-// RegisterTenant は新しいユーザーを登録し、有効化メールを送信します
 func (s *authService) RegisterTenant(ctx context.Context, req *model.RegisterRequest) (*model.Tenant, error) {
 	logger := middleware.GetLogger(ctx)
 	var newTenant *model.Tenant
@@ -86,58 +84,43 @@ func (s *authService) RegisterTenant(ctx context.Context, req *model.RegisterReq
 			return model.NewAppError("INTERNAL_SERVER_ERROR", "サーバー内部でエラーが発生しました。", "", err)
 		}
 
-		// Nameでの重複チェック
-		_, err = s.tenantRepo.FindByName(ctx, tx, req.Name)
-		if err == nil {
-			logger.Warn("Tenant name already exists", "name", req.Name)
-			return model.NewAppError("DUPLICATE_NAME", "そのユーザ名は既に使用されています。", "name", model.ErrConflict)
-		}
-		if !errors.Is(err, model.ErrNotFound) {
-			logger.Error("Failed to check name existence", "error", err)
-			return model.NewAppError("INTERNAL_SERVER_ERROR", "サーバー内部でエラーが発生しました。", "", err)
-		}
-
-		// パスワードのハッシュ化
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if err != nil {
-			logger.Error("Failed to hash password", "error", err)
 			return model.NewAppError("INTERNAL_SERVER_ERROR", "パスワードの処理中にエラーが発生しました。", "", err)
 		}
+		hashedPasswordStr := string(hashedPassword)
 
-		// 新しいTenantモデルを作成
 		tenant := &model.Tenant{
-			TenantID:     uuid.New(),
-			Name:         req.Name,
-			Email:        req.Email,
-			PasswordHash: string(hashedPassword),
-			IsActive:     false,
+			TenantID: uuid.New(),
+			Name:     req.Name,
+			Email:    req.Email,
+			IsActive: false,
 		}
-
-		// ユーザーをDBに保存
 		if err := s.tenantRepo.Create(ctx, tx, tenant); err != nil {
-			// Create内で重複エラーが検知された場合 (レースコンディション対策)
-			if errors.Is(err, model.ErrConflict) {
-				logger.Warn("Conflict during tenant creation (race condition)", "error", err)
-				return model.NewAppError("DUPLICATE_ENTRY", "指定された名前またはEmailは既に使用されています。", "name,email", model.ErrConflict)
-			}
-			logger.Error("Failed to create tenant in DB", "error", err)
 			return model.NewAppError("INTERNAL_SERVER_ERROR", "ユーザーの作成に失敗しました。", "", err)
 		}
 		newTenant = tenant
 
-		// --- メール認証トークン生成・メール送信処理 ---
+		identity := &model.Identity{
+			TenantID:     newTenant.TenantID,
+			AuthProvider: model.AuthProviderLocal,
+			ProviderID:   req.Email,
+			PasswordHash: &hashedPasswordStr,
+		}
+		if err := s.identityRepo.Create(ctx, tx, identity); err != nil {
+			return model.NewAppError("INTERNAL_SERVER_ERROR", "認証情報の作成に失敗しました。", "", err)
+		}
+
 		tokenString, err := s.generateAndSaveVerificationToken(ctx, tx, newTenant.TenantID)
 		if err != nil {
-			// generateAndSaveVerificationToken内でログは出力済み
 			return err
 		}
 
 		if err := s.sendVerificationEmail(ctx, newTenant.Email, tokenString); err != nil {
-			// sendVerificationEmail内でログは出力済み
-			return model.NewAppError("EMAIL_SEND_FAILED", "確認メールの送信に失敗しました。時間をおいて再度お試しください。", "", err)
+			return model.NewAppError("EMAIL_SEND_FAILED", "確認メールの送信に失敗しました。", "", err)
 		}
 
-		return nil // トランザクション成功
+		return nil
 	})
 
 	if err != nil {
@@ -193,169 +176,38 @@ func (s *authService) VerifyAccount(ctx context.Context, tokenString string) err
 	})
 }
 
-// Login はユーザーを認証し、JWTを返します
 func (s *authService) Login(ctx context.Context, req *model.LoginRequest) (*model.LoginResponse, error) {
 	logger := middleware.GetLogger(ctx).With("email", req.Email)
 
-	tenant, err := s.tenantRepo.FindByEmail(ctx, s.db, req.Email)
+	identity, err := s.identityRepo.FindByProvider(ctx, s.db, model.AuthProviderLocal, req.Email)
 	if err != nil {
 		if errors.Is(err, model.ErrNotFound) {
-			logger.Warn("Login failed: user not found")
 			return nil, model.NewAppError("AUTHENTICATION_FAILED", "メールアドレスまたはパスワードが正しくありません。", "", model.ErrInvalidInput)
 		}
-		logger.Error("Login failed: db error on FindByEmail", "error", err)
 		return nil, model.NewAppError("INTERNAL_SERVER_ERROR", "サーバー内部エラー", "", err)
 	}
 
-	err = bcrypt.CompareHashAndPassword([]byte(tenant.PasswordHash), []byte(req.Password))
+	if identity.PasswordHash == nil {
+		return nil, model.NewAppError("AUTHENTICATION_FAILED", "メールアドレスまたはパスワードが正しくありません。", "", model.ErrInvalidInput)
+	}
+	err = bcrypt.CompareHashAndPassword([]byte(*identity.PasswordHash), []byte(req.Password))
 	if err != nil {
-		logger.Warn("Login failed: password mismatch", "tenant_id", tenant.TenantID)
 		return nil, model.NewAppError("AUTHENTICATION_FAILED", "メールアドレスまたはパスワードが正しくありません。", "", model.ErrInvalidInput)
 	}
 
+	tenant, err := s.tenantRepo.FindByID(ctx, s.db, identity.TenantID)
+	if err != nil {
+		return nil, model.NewAppError("INTERNAL_SERVER_ERROR", "ユーザー情報の取得に失敗しました。", "", err)
+	}
+
 	if !tenant.IsActive {
-		logger.Warn("Login failed: account not active", "tenant_id", tenant.TenantID)
 		return nil, model.NewAppError("ACCOUNT_NOT_ACTIVE", "アカウントが有効化されていません。登録時に送信されたメールをご確認ください。", "", model.ErrForbidden)
 	}
 
-	claims := &jwt.RegisteredClaims{
-		Issuer:    s.cfg.App.Name,
-		Subject:   tenant.TenantID.String(),
-		ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.cfg.JWT.AccessTokenTTL)),
-		IssuedAt:  jwt.NewNumericDate(time.Now()),
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signedToken, err := token.SignedString([]byte(s.cfg.JWT.SecretKey))
-	if err != nil {
-		logger.Error("Failed to sign JWT", "error", err, "tenant_id", tenant.TenantID)
-		return nil, model.NewAppError("INTERNAL_SERVER_ERROR", "トークンの生成に失敗しました。", "", err)
-	}
-
 	logger.Info("Login successful", "tenant_id", tenant.TenantID)
-	return &model.LoginResponse{AccessToken: signedToken}, nil
+	return s.generateAppJWT(ctx, tenant)
 }
 
-// GetTenant は指定されたIDのテナントを取得します
-func (s *authService) GetTenant(ctx context.Context, tenantID uuid.UUID) (*model.Tenant, error) {
-	logger := middleware.GetLogger(ctx)
-	logger.Debug("Getting tenant by ID", "tenant_id", tenantID.String())
-	tenant, err := s.tenantRepo.FindByID(ctx, s.db, tenantID)
-	if err != nil {
-		if errors.Is(err, model.ErrNotFound) {
-			logger.Warn("Tenant not found", "tenant_id", tenantID.String())
-			return nil, model.NewAppError("TENANT_NOT_FOUND", "テナントが見つかりません。", "", model.ErrNotFound)
-		}
-		logger.Error("Error finding tenant by ID", "error", err)
-		return nil, model.NewAppError("INTERNAL_SERVER_ERROR", "サーバー内部エラー", "", err)
-	}
-	logger.Debug("Tenant found", "tenant_id", tenantID.String())
-	return tenant, nil
-}
-
-// --- ヘルパー関数 ---
-
-func (s *authService) generateAndSaveVerificationToken(ctx context.Context, tx *gorm.DB, tenantID uuid.UUID) (string, error) {
-	logger := middleware.GetLogger(ctx)
-	tokenBytes := make([]byte, 32)
-	if _, err := rand.Read(tokenBytes); err != nil {
-		logger.Error("Failed to generate random bytes for token", "error", err)
-		return "", model.NewAppError("INTERNAL_SERVER_ERROR", "トークンの生成に失敗しました。", "", err)
-	}
-	tokenString := hex.EncodeToString(tokenBytes)
-
-	verificationToken := &model.UserVerificationToken{
-		Token:     tokenString,
-		TenantID:  tenantID,
-		ExpiresAt: time.Now().Add(24 * time.Hour),
-	}
-	if err := s.tokenRepo.CreateVerificationToken(ctx, tx, verificationToken); err != nil {
-		// CreateVerificationToken内でログは出力済みなので、ここではエラーをラップして返すだけ
-		return "", model.NewAppError("INTERNAL_SERVER_ERROR", "トークンの保存に失敗しました。", "", err)
-	}
-	return tokenString, nil
-}
-
-func (s *authService) sendVerificationEmail(ctx context.Context, email, token string) error {
-	logger := middleware.GetLogger(ctx)
-	// フロントエンドのURLを設定ファイルから取得
-	verifyURL := fmt.Sprintf("%s/verify-email?token=%s", s.cfg.App.FrontendURL, token)
-	subject := "【Kioku】アカウントの有効化をお願いします"
-	body := fmt.Sprintf("Kiokuにご登録いただきありがとうございます。\n\n以下のリンクをクリックしてアカウントを有効化してください:\n%s\n\nこのリンクの有効期限は24時間です。", verifyURL)
-
-	logger.Info("Sending verification email", "to", email) // 送信前にログ
-	return s.mailer.Send(ctx, email, subject, body)
-}
-
-func (s *authService) RequestPasswordReset(ctx context.Context, email string) error {
-	logger := middleware.GetLogger(ctx).With("email", email)
-
-	tenant, err := s.tenantRepo.FindByEmail(ctx, s.db, email)
-	if err != nil {
-		if errors.Is(err, model.ErrNotFound) {
-			logger.Warn("Password reset requested for non-existent email")
-			// ユーザーが存在しない場合でも、それを悟られないように成功として扱う
-			return nil
-		}
-		return model.NewAppError("INTERNAL_SERVER_ERROR", "エラーが発生しました。", "", err)
-	}
-
-	// トークン生成
-	tokenString, err := s.generateAndSavePasswordResetToken(ctx, s.db, tenant.TenantID)
-	if err != nil {
-		return err // 内部でAppErrorにラップ済み
-	}
-
-	// メール送信
-	resetURL := fmt.Sprintf("%s/reset-password?token=%s", s.cfg.App.FrontendURL, tokenString)
-	subject := "【Kioku】パスワードの再設定"
-	body := fmt.Sprintf("パスワードを再設定するには、以下のリンクをクリックしてください:\n%s\n\nこのリンクの有効期限は1時間です。", resetURL)
-
-	if err := s.mailer.Send(ctx, tenant.Email, subject, body); err != nil {
-		return model.NewAppError("EMAIL_SEND_FAILED", "メールの送信に失敗しました。", "", err)
-	}
-
-	logger.Info("Password reset email sent")
-	return nil
-}
-
-// --- ResetPassword メソッドを新規実装 ---
-func (s *authService) ResetPassword(ctx context.Context, tokenString, newPassword string) error {
-	logger := middleware.GetLogger(ctx)
-
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// 1. トークンを検証
-		token, err := s.tokenRepo.FindPasswordResetToken(ctx, tx, tokenString)
-		if err != nil {
-			return model.NewAppError("INVALID_TOKEN", "このリンクは無効か、既に使用されています。", "token", model.ErrInvalidInput)
-		}
-		if time.Now().After(token.ExpiresAt) {
-			_ = s.tokenRepo.DeletePasswordResetToken(ctx, tx, tokenString)
-			return model.NewAppError("INVALID_TOKEN", "このリンクの有効期限が切れています。", "token", model.ErrInvalidInput)
-		}
-
-		// 2. 新しいパスワードをハッシュ化
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
-		if err != nil {
-			return model.NewAppError("INTERNAL_SERVER_ERROR", "パスワードの処理中にエラーが発生しました。", "", err)
-		}
-
-		// 3. パスワードを更新
-		result := tx.Model(&model.Tenant{}).Where("tenant_id = ?", token.TenantID).Update("password_hash", string(hashedPassword))
-		if result.Error != nil || result.RowsAffected == 0 {
-			return model.NewAppError("INTERNAL_SERVER_ERROR", "パスワードの更新に失敗しました。", "", result.Error)
-		}
-
-		// 4. 使用済みトークンを削除
-		if err := s.tokenRepo.DeletePasswordResetToken(ctx, tx, tokenString); err != nil {
-			logger.Error("Failed to delete used password reset token", "error", err)
-		}
-
-		logger.Info("Password reset successfully", "tenant_id", token.TenantID)
-		return nil
-	})
-}
-
-// HandleGoogleLoginメソッドを新規実装
 func (s *authService) HandleGoogleLogin(ctx context.Context, code string) (*model.LoginResponse, error) {
 	logger := middleware.GetLogger(ctx)
 
@@ -376,38 +228,61 @@ func (s *authService) HandleGoogleLogin(ctx context.Context, code string) (*mode
 	}
 
 	var googleUser struct {
+		ID    string `json:"id"`
 		Email string `json:"email"`
 		Name  string `json:"name"`
 	}
 	if err := json.Unmarshal(body, &googleUser); err != nil {
 		return nil, model.NewAppError("GOOGLE_API_FAILED", "ユーザー情報の解析に失敗しました。", "", err)
 	}
+	logger = logger.With("google_email", googleUser.Email, "google_id", googleUser.ID)
 
-	logger = logger.With("google_email", googleUser.Email)
-	var appUser *model.Tenant
+	identity, err := s.identityRepo.FindByProvider(ctx, s.db, model.AuthProviderGoogle, googleUser.ID)
+	if err == nil {
+		logger.Info("Google user already exists, logging in")
+		tenant, findErr := s.tenantRepo.FindByID(ctx, s.db, identity.TenantID)
+		if findErr != nil {
+			return nil, model.NewAppError("INTERNAL_SERVER_ERROR", "ユーザー情報の取得に失敗しました。", "", findErr)
+		}
+		return s.generateAppJWT(ctx, tenant)
+	}
 
+	if !errors.Is(err, model.ErrNotFound) {
+		return nil, model.NewAppError("INTERNAL_SERVER_ERROR", "DBエラーが発生しました。", "", err)
+	}
+
+	logger.Info("New Google login detected, processing registration or linking")
+	var targetTenant *model.Tenant
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		user, findErr := s.tenantRepo.FindByEmail(ctx, tx, googleUser.Email)
+		existingTenant, findErr := s.tenantRepo.FindByEmail(ctx, tx, googleUser.Email)
 		if findErr != nil && !errors.Is(findErr, model.ErrNotFound) {
 			return findErr
 		}
 
 		if errors.Is(findErr, model.ErrNotFound) {
-			logger.Info("Creating new user from Google login")
-			newUser := &model.Tenant{
-				TenantID:     uuid.New(),
-				Name:         googleUser.Name,
-				Email:        googleUser.Email,
-				PasswordHash: "",
-				IsActive:     true,
+			logger.Info("No existing email, creating new tenant and identity")
+			newTenant := &model.Tenant{
+				TenantID: uuid.New(),
+				Name:     googleUser.Name,
+				Email:    googleUser.Email,
+				IsActive: true,
 			}
-			if createErr := s.tenantRepo.Create(ctx, tx, newUser); createErr != nil {
+			if createErr := s.tenantRepo.Create(ctx, tx, newTenant); createErr != nil {
 				return createErr
 			}
-			appUser = newUser
+			targetTenant = newTenant
 		} else {
-			logger.Info("User found, proceeding with Google login")
-			appUser = user
+			logger.Info("Existing email found, linking Google identity to tenant", "tenant_id", existingTenant.TenantID)
+			targetTenant = existingTenant
+		}
+
+		newIdentity := &model.Identity{
+			TenantID:     targetTenant.TenantID,
+			AuthProvider: model.AuthProviderGoogle,
+			ProviderID:   googleUser.ID,
+		}
+		if createErr := s.identityRepo.Create(ctx, tx, newIdentity); createErr != nil {
+			return createErr
 		}
 		return nil
 	})
@@ -415,28 +290,120 @@ func (s *authService) HandleGoogleLogin(ctx context.Context, code string) (*mode
 		return nil, model.NewAppError("DB_OPERATION_FAILED", "ユーザー処理中にエラーが発生しました。", "", err)
 	}
 
-	return s.generateAppJWT(ctx, appUser)
+	return s.generateAppJWT(ctx, targetTenant)
 }
 
-// --- パスワードリセット用のヘルパー関数 ---
+func (s *authService) RequestPasswordReset(ctx context.Context, email string) error {
+	logger := middleware.GetLogger(ctx).With("email", email)
+
+	identity, err := s.identityRepo.FindByProvider(ctx, s.db, model.AuthProviderLocal, email)
+	if err != nil {
+		if errors.Is(err, model.ErrNotFound) {
+			logger.Warn("Password reset requested for non-existent local identity")
+			return nil
+		}
+		return model.NewAppError("INTERNAL_SERVER_ERROR", "エラーが発生しました。", "", err)
+	}
+
+	tokenString, err := s.generateAndSavePasswordResetToken(ctx, s.db, identity.TenantID)
+	if err != nil {
+		return err
+	}
+
+	resetURL := fmt.Sprintf("%s/reset-password?token=%s", s.cfg.App.FrontendURL, tokenString)
+	subject := "【Kioku】パスワードの再設定"
+	body := fmt.Sprintf("パスワードを再設定するには、以下のリンクをクリックしてください:\n%s\n\nこのリンクの有効期限は1時間です。", resetURL)
+
+	if err := s.mailer.Send(ctx, email, subject, body); err != nil {
+		return model.NewAppError("EMAIL_SEND_FAILED", "メールの送信に失敗しました。", "", err)
+	}
+
+	logger.Info("Password reset email sent")
+	return nil
+}
+
+func (s *authService) ResetPassword(ctx context.Context, tokenString, newPassword string) error {
+	logger := middleware.GetLogger(ctx)
+
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		token, err := s.tokenRepo.FindPasswordResetToken(ctx, tx, tokenString)
+		if err != nil {
+			return model.NewAppError("INVALID_TOKEN", "このリンクは無効か、既に使用されています。", "token", model.ErrInvalidInput)
+		}
+		if time.Now().After(token.ExpiresAt) {
+			_ = s.tokenRepo.DeletePasswordResetToken(ctx, tx, tokenString)
+			return model.NewAppError("INVALID_TOKEN", "このリンクの有効期限が切れています。", "token", model.ErrInvalidInput)
+		}
+
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+		if err != nil {
+			return model.NewAppError("INTERNAL_SERVER_ERROR", "パスワードの処理中にエラーが発生しました。", "", err)
+		}
+		hashedPasswordStr := string(hashedPassword)
+
+		result := tx.Model(&model.Identity{}).
+			Where("tenant_id = ? AND auth_provider = ?", token.TenantID, model.AuthProviderLocal).
+			Update("password_hash", &hashedPasswordStr)
+		if result.Error != nil {
+			return model.NewAppError("INTERNAL_SERVER_ERROR", "パスワードの更新に失敗しました。", "", result.Error)
+		}
+		if result.RowsAffected == 0 {
+			return model.NewAppError("NOT_FOUND", "更新対象のローカルアカウントが見つかりません。", "", model.ErrNotFound)
+		}
+
+		if err := s.tokenRepo.DeletePasswordResetToken(ctx, tx, tokenString); err != nil {
+			logger.Error("Failed to delete used password reset token", "error", err)
+		}
+
+		logger.Info("Password reset successfully", "tenant_id", token.TenantID)
+		return nil
+	})
+}
+
+func (s *authService) GetTenant(ctx context.Context, tenantID uuid.UUID) (*model.Tenant, error) {
+	tenant, err := s.tenantRepo.FindByID(ctx, s.db, tenantID)
+	if err != nil {
+		if errors.Is(err, model.ErrNotFound) {
+			return nil, model.NewAppError("TENANT_NOT_FOUND", "テナントが見つかりません。", "", model.ErrNotFound)
+		}
+		return nil, model.NewAppError("INTERNAL_SERVER_ERROR", "サーバー内部エラー", "", err)
+	}
+	return tenant, nil
+}
+
+func (s *authService) generateAndSaveVerificationToken(ctx context.Context, tx *gorm.DB, tenantID uuid.UUID) (string, error) {
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return "", model.NewAppError("INTERNAL_SERVER_ERROR", "トークンの生成に失敗しました。", "", err)
+	}
+	tokenString := hex.EncodeToString(tokenBytes)
+	verificationToken := &model.UserVerificationToken{Token: tokenString, TenantID: tenantID, ExpiresAt: time.Now().Add(24 * time.Hour)}
+	if err := s.tokenRepo.CreateVerificationToken(ctx, tx, verificationToken); err != nil {
+		return "", model.NewAppError("INTERNAL_SERVER_ERROR", "トークンの保存に失敗しました。", "", err)
+	}
+	return tokenString, nil
+}
+
+func (s *authService) sendVerificationEmail(ctx context.Context, email, token string) error {
+	verifyURL := fmt.Sprintf("%s/verify-email?token=%s", s.cfg.App.FrontendURL, token)
+	subject := "【Kioku】アカウントの有効化をお願いします"
+	body := fmt.Sprintf("Kiokuにご登録いただきありがとうございます。\n\n以下のリンクをクリックしてアカウントを有効化してください:\n%s\n\nこのリンクの有効期限は24時間です。", verifyURL)
+	return s.mailer.Send(ctx, email, subject, body)
+}
+
 func (s *authService) generateAndSavePasswordResetToken(ctx context.Context, tx *gorm.DB, tenantID uuid.UUID) (string, error) {
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return "", model.NewAppError("INTERNAL_SERVER_ERROR", "トークンの生成に失敗しました。", "", err)
 	}
 	tokenString := hex.EncodeToString(tokenBytes)
-	resetToken := &model.PasswordResetToken{
-		Token:     tokenString,
-		TenantID:  tenantID,
-		ExpiresAt: time.Now().Add(1 * time.Hour), // 有効期限は1時間
-	}
+	resetToken := &model.PasswordResetToken{Token: tokenString, TenantID: tenantID, ExpiresAt: time.Now().Add(1 * time.Hour)}
 	if err := s.tokenRepo.CreatePasswordResetToken(ctx, tx, resetToken); err != nil {
 		return "", model.NewAppError("INTERNAL_SERVER_ERROR", "トークンの保存に失敗しました。", "", err)
 	}
 	return tokenString, nil
 }
 
-// 共通のJWT生成ロジックをヘルパー関数に切り出す
 func (s *authService) generateAppJWT(ctx context.Context, tenant *model.Tenant) (*model.LoginResponse, error) {
 	claims := &jwt.RegisteredClaims{
 		Issuer:    s.cfg.App.Name,
