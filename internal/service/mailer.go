@@ -95,6 +95,9 @@ func NewMailer(cfg *config.Config) Mailer {
 	case "smtp":
 		logger.Info("Initializing SMTP mailer...")
 		return &SmtpMailer{cfg: &cfg.SMTP}
+	case "ses": // このケースを追加することでSESに切り替え可能
+		logger.Info("Initializing SES mailer...")
+		return NewSESMailer(cfg) // SES実装を返す
 	case "log":
 		logger.Info("Initializing Log mailer...")
 		return &LogMailer{}

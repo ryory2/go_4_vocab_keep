@@ -146,6 +146,8 @@ jobs:
             APP_ENV=production
             APP_JWT_SECRET_KEY=${{ secrets.APP_JWT_SECRET_KEY }}
             APP_GOOGLE_OAUTH_CLIENT_SECRET=${{ secrets.APP_GOOGLE_OAUTH_CLIENT_SECRET }}
+            APP_AWS_ACCESS_KEY_ID=${{ secrets.APP_AWS_SECRET_ACCESS_KEY }}
+            APP_AWS_SECRET_ACCESS_KEY=${{ secrets.APP_AWS_SECRET_ACCESS_KEY }}
 
       # 6. タスク定義をECSへデプロイ (amazon-ecs-deploy-task-definition@v1)
       - name: Deploy Amazon ECS task definition
