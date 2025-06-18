@@ -37,7 +37,7 @@ https://impierrot.click/
     -   スムーズなアニメーションによる快適な学習体験
 
 ## インフラ構成図
-（記載予定）
+![Kiokuアプリケーション インフラ構成図](./docs/architecture.drawio.png)
 
 ## 技術スタック (Tech Stack)
 -   **バックエンド**:
@@ -94,7 +94,7 @@ https://impierrot.click/
 
 ### 共通
 - **CDの整備**: `GitHub Actions`を用い、masterブランチへマージをトリガーとして自動デプロイを実装。保守性を向上しています。
-- **IaC (Infrastructure as Code) の導入**: `Terraform`にインフラの構築手順をすべて記載。利用するときだけ環境を構築することで費用を抑えています。
+- **IaC (Infrastructure as Code) の導入**: `Terraform`にインフラの構築手順をすべて記載。保守性の向上とともに、利用するときだけ環境を構築することで費用を抑えています。
 - **ローカル開発環境の整備**: `Devcontainer`を導入。開発環境の構築と環境差異を最小限に抑え、チーム開発時の生産性を向上します。
 - **Git Flowによる体系的なブランチ運用**: 新機能は feature、緊急のバグ修正は hotfix ブランチで開発するなど、`Git Flow`のワークフローを採用しています。これにより、進行中の開発（develop）と本番（master）の安定性を完全に分離し、安全かつ並行して開発を進められる体制を構築しました。
 
@@ -118,17 +118,19 @@ https://impierrot.click/
     git clone https://github.com/ryory2/go_4_vocab_keep.git
     ```
 
-3.  **環境設定**:
+3.  **環境設定**
     *   `.env.example` をコピーして `.env` を作成します。
-    *   `configs/config.development.yaml.example` をコピーして `configs/config.development.yaml` を作成します。
-    *   `config.development.yaml` と `.env` に、Google Cloud Consoleで取得した開発用の**クライアントID**と**クライアントシークレット**を設定してください。
+    *   デフォルトで設定で問題ない場合はアプリケーションの起動に進んでください。（Googleのソーシャルログインはコールバック不可のため利用できません。grokなどを利用ください。）
 
 4.  **アプリケーションの起動**:
     1. VSCodeでプロジェクトを開く
     2. 「 Ctrl + Shift + p 」を押下
     3. 「開発コンテナー: キャッシュなしのコンテナのリビルド」
 
-5.  **アクセス**:
+5.  **DBのマイグレーション**:
+    *   `migrate -database "${APP_DATABASE_URL}" -path db/migrations up`をターミナルで実行します。
+
+6.  **アクセス**:
     *   **フロントエンド**: [http://localhost:3000](http://localhost:3000)
     *   **バックエンド**: [http://localhost:8080](http://localhost:8080)
     *   **ダミーメールサーバー (MailHog)**: [http://localhost:8025](http://localhost:8025)
