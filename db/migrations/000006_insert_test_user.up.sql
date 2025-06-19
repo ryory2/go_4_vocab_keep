@@ -1,0 +1,2 @@
+INSERT INTO public.tenants (tenant_id, name, created_at, updated_at, deleted_at, email, is_active) VALUES ('091564e7-e414-46a5-87cd-9b2ed0c96952', 'example@example.com', '2025-06-16 08:12:51.88453', '2025-06-16 08:45:51.947992', NULL, 'example@example.com', true);
+INSERT INTO public.identities (id, tenant_id, auth_provider, provider_id, password_hash) VALUES (4, '091564e7-e414-46a5-87cd-9b2ed0c96952', 'local', 'example@example.com', '$2a$10$0phIdsvZWo/ujhYbUXCA1..XAzIStHrRNw6T51C73H0i1bW/g3hfC');
